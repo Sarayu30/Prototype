@@ -28,6 +28,11 @@ export type Campaign = {
   sentAt?: string
   type?: string
   channel?: string
+  channels?: string[]
+  label?: string
+  audience?: string
+  message?: string
+  scheduledAt?: string
 }
 
 export type CampaignEventName =

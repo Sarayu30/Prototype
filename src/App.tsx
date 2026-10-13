@@ -99,10 +99,23 @@ function Login({ onLogin }: { onLogin: () => void }) {
 }
 
 
-const sectionIcons = ['⌂', '◫', '♙', '◌', '▥', '✧', '✓']
+function SidebarIcon({ section }: { section: Section }) {
+  const icon = {
+    Dashboard: <><rect x="3" y="3" width="7" height="9" rx="1" /><rect x="14" y="3" width="7" height="5" rx="1" /><rect x="14" y="12" width="7" height="9" rx="1" /><rect x="3" y="16" width="7" height="5" rx="1" /></>,
+    Campaigns: <><path d="m3 11 18-5-5 13-3-6-6-2z" /><path d="m13 13 3 6" /></>,
+    'Student Leads': <><path d="M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="10" cy="7" r="4" /><path d="M20 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></>,
+    Conversations: <><path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8z" /></>,
+    Analytics: <><path d="M3 3v18h18" /><path d="m19 9-5 5-4-4-5 5" /></>,
+    Recommendations: <><path d="m12 3 1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2L12 3z" /><path d="m19 14 1.2 2.8L23 18l-2.8 1.2L19 22l-1.2-2.8L15 18l2.8-1.2L19 14z" /></>,
+    'Activated Features': <><path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11z" /><path d="m9 12 2 2 4-4" /></>,
+  }[section]
+
+  return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{icon}</svg>
+}
 
 function ExplanationModeLabel({ recommendation }: { recommendation: AnalyticsRecommendation }) {
-  const label = recommendation.explanationMode === 'groq' ? 'GROQ PERSONALIZED' : recommendation.explanationMode === 'fallback' ? 'AI FALLBACK MODE' : 'PREPARING EXPLANATION'
+  if (recommendation.explanationMode === 'fallback') return null
+  const label = recommendation.explanationMode === 'groq' ? 'GROQ PERSONALIZED' : 'PREPARING EXPLANATION'
   return <span className={'ai-explanation-label ai-explanation-' + (recommendation.explanationMode ?? 'pending')}>{label}</span>
 }
 
@@ -124,6 +137,8 @@ function ReviewerAiDiagnostics({ recommendation }: { recommendation: AnalyticsRe
     </dl>}
   </section>
 }
+
+type CampaignFormValues = Pick<Campaign, 'name' | 'label' | 'type' | 'channels' | 'audience' | 'audienceSize' | 'message' | 'scheduledAt'> & { channels: string[] }
 
 function Dashboard({ section, onNavigate, onLogout }: { section: Section; onNavigate: (section: Section) => void; onLogout: () => void }) {
   const [campaigns, setCampaigns] = useState<Campaign[]>(() => readCampaigns(window.localStorage))
@@ -169,21 +184,39 @@ function Dashboard({ section, onNavigate, onLogout }: { section: Section; onNavi
     setRecommendations(evaluateAnalyticsRecommendations(window.localStorage, readCampaigns(window.localStorage), updatedEvents))
   }
 
-  function createCampaign(name: string) {
-    const campaign: Campaign = { id: createId('cmp'), name, audienceSize: 128, status: 'draft', createdAt: new Date().toISOString(), type: 'Community update', channel: 'Email' }
-    const updated = [campaign, ...campaigns]
+  function createCampaign(values: CampaignFormValues, sendNow: boolean) {
+    const createdAt = new Date().toISOString()
+    const draft: Campaign = { ...values, id: createId('cmp'), status: 'draft', createdAt, channel: values.channels[0] }
+    const drafts = [draft, ...campaigns]
+    saveCampaigns(window.localStorage, drafts)
+    setCampaigns(drafts)
+    trackAction('campaign.created', draft)
+    if (sendNow) {
+      const campaign = { ...draft, status: 'sent' as const, sentAt: new Date().toISOString() }
+      sentCampaignIds.current.add(campaign.id)
+      const updated = drafts.map((item) => item.id === campaign.id ? campaign : item)
+      saveCampaigns(window.localStorage, updated)
+      setCampaigns(updated)
+      trackAction('campaign.sent', campaign)
+    }
+  }
+
+  function updateCampaign(campaignId: string, values: CampaignFormValues) {
+    const currentCampaigns = readCampaigns(window.localStorage)
+    const updated = currentCampaigns.map((campaign) => campaign.id === campaignId && campaign.status === 'draft'
+      ? { ...campaign, ...values, channel: values.channels[0] }
+      : campaign)
     saveCampaigns(window.localStorage, updated)
     setCampaigns(updated)
-    trackAction('campaign.created', campaign)
   }
 
   function sendCampaign(campaignId: string) {
     if (sentCampaignIds.current.has(campaignId)) return
-    const campaign = campaigns.find((item) => item.id === campaignId)
+    const campaign = readCampaigns(window.localStorage).find((item) => item.id === campaignId)
     if (!campaign || campaign.status === 'sent') return
     sentCampaignIds.current.add(campaignId)
     const sentCampaign = { ...campaign, status: 'sent' as const, sentAt: new Date().toISOString() }
-    const updated = campaigns.map((item) => item.id === campaignId ? sentCampaign : item)
+    const updated = readCampaigns(window.localStorage).map((item) => item.id === campaignId ? sentCampaign : item)
     saveCampaigns(window.localStorage, updated)
     setCampaigns(updated)
     trackAction('campaign.sent', sentCampaign)
@@ -228,14 +261,14 @@ function Dashboard({ section, onNavigate, onLogout }: { section: Section; onNavi
       <div className="sidebar-brand"><Brand /></div>
       <div className="sidebar-school"><span className="school-avatar">B</span><span><strong>BrightPath Academy</strong><small>School workspace</small></span><span className="school-chevron">⌄</span></div>
       <div className="sidebar-label">WORKSPACE</div>
-      <nav className="sidebar-nav" aria-label="Main navigation">{sections.map((item, index) => <a key={item} href={pathForSection(item)} className={'nav-item ' + (section === item ? 'nav-item-active' : '')} aria-current={section === item ? 'page' : undefined} onClick={(event) => { event.preventDefault(); onNavigate(item) }}><span className="nav-icon" aria-hidden="true">{sectionIcons[index]}</span><span>{item}</span>{item === 'Recommendations' && analyticsRecommended && <span className="nav-indicator" aria-label="New recommendation" />}</a>)}</nav>
+      <nav className="sidebar-nav" aria-label="Main navigation">{sections.map((item) => <a key={item} href={pathForSection(item)} className={'nav-item ' + (section === item ? 'nav-item-active' : '')} aria-current={section === item ? 'page' : undefined} onClick={(event) => { event.preventDefault(); onNavigate(item) }}><span className="nav-icon"><SidebarIcon section={item} /></span><span>{item}</span>{item === 'Recommendations' && analyticsRecommended && <span className="nav-indicator" aria-label="New recommendation" />}</a>)}</nav>
       <div className="sidebar-profile"><span className="profile-avatar">RS</span><span><strong>Ravi Sharma</strong><small>Administrator</small></span><button aria-label="Log out" onClick={onLogout}>↗</button></div>
     </aside>
     <div className="workspace-main">
       <header className="workspace-topbar"><div><span className="topbar-context">BrightPath Academy</span><span className="topbar-divider">/</span><strong>{section}</strong></div><button className="logout-button" onClick={onLogout}>Log out</button></header>
       <div className="workspace-page">
         {section === 'Dashboard' && <DashboardHome campaigns={campaigns} events={events} recommendation={activeRecommendation} analyticsSetup={analyticsSetup} onNavigate={onNavigate} onResumeAnalyticsSetup={() => { setAnalyticsSetupOpen(true); onNavigate('Analytics') }} onExploreRecommendation={() => activeRecommendation && exploreRecommendation(activeRecommendation.id)} onDismissRecommendation={() => activeRecommendation && dismissRecommendation(activeRecommendation.id)} />}
-        {section === 'Campaigns' && <CampaignsPage campaigns={campaigns} events={events} recommendation={activeRecommendation} debugRecommendation={activeRecommendation ?? recommendations[0] ?? null} onCreate={createCampaign} onSend={sendCampaign} onViewReport={viewReport} onExploreRecommendation={() => activeRecommendation && exploreRecommendation(activeRecommendation.id)} onDismissRecommendation={() => activeRecommendation && dismissRecommendation(activeRecommendation.id)} />}
+        {section === 'Campaigns' && <CampaignsPage campaigns={campaigns} events={events} recommendation={activeRecommendation} debugRecommendation={activeRecommendation ?? recommendations[0] ?? null} onCreate={createCampaign} onUpdate={updateCampaign} onSend={sendCampaign} onViewReport={viewReport} onExploreRecommendation={() => activeRecommendation && exploreRecommendation(activeRecommendation.id)} onDismissRecommendation={() => activeRecommendation && dismissRecommendation(activeRecommendation.id)} />}
         {section === 'Student Leads' && <StudentLeadsPage />}
         {section === 'Conversations' && <ConversationsPage />}
         {section === 'Analytics' && <AnalyticsSetupPage setup={analyticsSetup} isOpen={analyticsSetupOpen} onStart={beginAnalyticsSetup} onResume={() => setAnalyticsSetupOpen(true)} onUpdate={updateSetup} onActivate={finishAnalyticsSetup} />}
@@ -264,47 +297,85 @@ function SummaryCard({ label, value, detail, icon }: { label: string; value: str
   return <article className="summary-card"><span className="summary-icon">{icon}</span><div><span className="summary-label">{label}</span><strong>{value}</strong><small>{detail}</small></div></article>
 }
 
-function CampaignsPage({ campaigns, events, recommendation, debugRecommendation, onCreate, onSend, onViewReport, onExploreRecommendation, onDismissRecommendation }: { campaigns: Campaign[]; events: ReturnType<typeof readEvents>; recommendation: AnalyticsRecommendation | null; debugRecommendation: AnalyticsRecommendation | null; onCreate: (name: string) => void; onSend: (id: string) => void; onViewReport: (campaign: Campaign) => void; onExploreRecommendation: () => void; onDismissRecommendation: () => void }) {
-  const [isCreating, setIsCreating] = useState(false)
-  const [name, setName] = useState('')
+function CampaignTypeIcon({ type }: { type: string }) {
+  const icon = type === 'Email' ? <><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3 7 9 6 9-6" /></>
+    : type === 'SMS' ? <><rect x="5" y="2" width="14" height="20" rx="2" /><path d="M12 18h.01" /></>
+      : <><path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8z" /></>
+  return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{icon}</svg>
+}
+
+function CampaignForm({ initial, onSave, onCancel }: { initial?: Campaign; onSave: (values: CampaignFormValues, sendNow: boolean) => void; onCancel: () => void }) {
+  const [type, setType] = useState(['WhatsApp', 'Email', 'SMS'].includes(initial?.type ?? '') ? initial!.type! : 'Email')
+  const [name, setName] = useState(initial?.name ?? '')
+  const [label, setLabel] = useState(initial?.label ?? '')
+  const [audience, setAudience] = useState(initial?.audience ?? 'All BrightPath families')
+  const [contacts, setContacts] = useState(String(initial?.audienceSize ?? 128))
+  const [message, setMessage] = useState(initial?.message ?? '')
+  const [schedule, setSchedule] = useState(() => {
+    if (!initial?.scheduledAt) return ''
+    const date = new Date(initial.scheduledAt)
+    return Number.isNaN(date.getTime()) ? '' : new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+  })
   const [error, setError] = useState('')
+  const maxMessageLength = type === 'SMS' ? 320 : type === 'WhatsApp' ? 4096 : 10000
+
+  function save(sendNow: boolean) {
+    if (!name.trim() || !label.trim() || !message.trim()) { setError('Complete the campaign name, label, and message.'); return }
+    if (!Number.isFinite(Number(contacts)) || Number(contacts) < 1) { setError('Enter at least one contact.'); return }
+    setError('')
+    onSave({ name: name.trim(), label: label.trim(), type, channels: [type], audience, audienceSize: Number(contacts), message: message.trim(), scheduledAt: schedule ? new Date(schedule).toISOString() : undefined }, sendNow)
+  }
+
+  return <form className="create-campaign-form campaign-composer" onSubmit={(event) => { event.preventDefault(); save(false) }}>
+    <div className="campaign-form-heading"><div><span className="eyebrow">CAMPAIGN DETAILS</span><h2>{initial ? 'Edit draft campaign' : 'Create a campaign'}</h2><p>Prepare a message for your BrightPath audience.</p></div><button className="icon-button" type="button" aria-label="Close campaign form" onClick={onCancel}>×</button></div>
+    <fieldset className="campaign-type-picker"><legend>Campaign Type</legend>{['WhatsApp', 'Email', 'SMS'].map((item) => <button type="button" key={item} aria-pressed={type === item} className={'campaign-type-option ' + (type === item ? 'campaign-type-selected' : '')} onClick={() => setType(item)}><CampaignTypeIcon type={item} /><span>{item}</span></button>)}</fieldset>
+    <div className="campaign-form-grid">
+      <label>Campaign Name<input autoFocus maxLength={80} placeholder="e.g. Spring study tips" value={name} onChange={(event) => setName(event.target.value)} /></label>
+      <label>Label<input maxLength={40} placeholder="e.g. Academic updates" value={label} onChange={(event) => setLabel(event.target.value)} /></label>
+      <label>Audience<select value={audience} onChange={(event) => { const value = event.target.value; setAudience(value); setContacts(value === 'All BrightPath families' ? '128' : value === 'Grade 8 families' ? '36' : '') }}><option>All BrightPath families</option><option>Grade 8 families</option><option>Custom contacts</option></select></label>
+      <label>Contacts<input type="number" min="1" max="10000" value={contacts} onChange={(event) => setContacts(event.target.value)} placeholder="Number of contacts" /></label>
+      <label className="campaign-schedule">Schedule Date &amp; Time <span className="field-optional">Optional</span><input type="datetime-local" value={schedule} onChange={(event) => setSchedule(event.target.value)} /></label>
+      <label className="campaign-message">Message<textarea rows={5} maxLength={maxMessageLength} placeholder={type === 'SMS' ? 'Write a concise text message…' : type === 'WhatsApp' ? 'Write your WhatsApp message…' : 'Write the email message for your audience…'} value={message} onChange={(event) => setMessage(event.target.value)} /><small>{message.length}/{maxMessageLength} characters</small></label>
+    </div>
+    <p className="form-help">Demo audience · {contacts || '0'} contacts. Message and schedule are saved with this campaign.</p>
+    {error && <p className="campaign-error" role="alert">{error}</p>}
+    <div className="campaign-form-actions"><button className="secondary-action" type="button" onClick={() => save(false)}>Save as Draft</button><button className="primary-action" type="button" onClick={() => save(true)}>Send Campaign</button></div>
+  </form>
+}
+
+function CampaignsPage({ campaigns, events, recommendation, debugRecommendation, onCreate, onUpdate, onSend, onViewReport, onExploreRecommendation, onDismissRecommendation }: { campaigns: Campaign[]; events: ReturnType<typeof readEvents>; recommendation: AnalyticsRecommendation | null; debugRecommendation: AnalyticsRecommendation | null; onCreate: (values: CampaignFormValues, sendNow: boolean) => void; onUpdate: (id: string, values: CampaignFormValues) => void; onSend: (id: string) => void; onViewReport: (campaign: Campaign) => void; onExploreRecommendation: () => void; onDismissRecommendation: () => void }) {
+  const [isCreating, setIsCreating] = useState(false)
+  const [editing, setEditing] = useState<Campaign | null>(null)
   const [reportId, setReportId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [channel, setChannel] = useState('All channels')
   const [status, setStatus] = useState('All statuses')
+  const [typeFilter, setTypeFilter] = useState('All types')
   const [sort, setSort] = useState('newest')
-  const createLock = useRef(false)
   const report = campaigns.find((item) => item.id === reportId) ?? null
 
-  function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (createLock.current) return
-    if (!name.trim()) { setError('Add a campaign name to continue.'); return }
-    createLock.current = true
-    try { onCreate(name.trim()); setName(''); setError(''); setIsCreating(false) }
-    catch { createLock.current = false; setError("We couldn't save that campaign. Please try again.") }
-  }
-  function toggleCreate() {
-    if (isCreating) { setIsCreating(false); return }
-    createLock.current = false
-    setError('')
-    setIsCreating(true)
+  function closeForm() { setIsCreating(false); setEditing(null) }
+  function saveForm(values: CampaignFormValues, sendNow: boolean) {
+    if (editing) { onUpdate(editing.id, values); if (sendNow) onSend(editing.id) }
+    else onCreate(values, sendNow)
+    closeForm()
   }
   function openReport(campaign: Campaign) {
     setReportId(campaign.id)
     onViewReport(campaign)
   }
   const filteredCampaigns = campaigns
-    .filter((item) => item.name.toLowerCase().includes(search.trim().toLowerCase()))
-    .filter((item) => channel === 'All channels' || (item.channel ?? 'Email') === channel)
+    .filter((item) => [item.name, item.label, item.type, item.audience, ...(item.channels ?? [item.channel ?? 'Email'])].some((value) => value?.toLowerCase().includes(search.trim().toLowerCase())))
+    .filter((item) => channel === 'All channels' || (item.channels ?? [item.channel ?? 'Email']).includes(channel))
+    .filter((item) => typeFilter === 'All types' || (item.type ?? 'Community update') === typeFilter)
     .filter((item) => status === 'All statuses' || item.status === status.toLowerCase())
-    .sort((a, b) => sort === 'oldest' ? Date.parse(a.createdAt) - Date.parse(b.createdAt) : sort === 'name' ? a.name.localeCompare(b.name) : Date.parse(b.createdAt) - Date.parse(a.createdAt))
+    .sort((a, b) => sort === 'oldest' ? Date.parse(a.createdAt) - Date.parse(b.createdAt) : sort === 'name' ? a.name.localeCompare(b.name) : sort === 'label' ? (a.label ?? '').localeCompare(b.label ?? '') : sort === 'contacts' ? b.audienceSize - a.audienceSize : Date.parse(b.createdAt) - Date.parse(a.createdAt))
 
   function exportReport() {
-    const headings = ['Campaign name', 'Type', 'Channel', 'Status', 'Contacts', 'Sent', 'Delivered', 'Opened', 'Clicked']
+    const headings = ['Campaign Name', 'Label', 'Campaign Type', 'Channels', 'Status', 'Contacts', 'Sent', 'Delivered', 'Opened', 'Clicked']
     const rows = filteredCampaigns.map((item) => {
       const metrics = campaignDemoMetrics(item)
-      return [item.name, item.type ?? 'Community update', item.channel ?? 'Email', item.status, metrics.contacts, metrics.sent, metrics.delivered, metrics.opened, metrics.clicked]
+      return [item.name, item.label ?? '', item.type ?? 'Community update', (item.channels ?? [item.channel ?? 'Email']).join(' / '), item.status, metrics.contacts, metrics.sent, metrics.delivered, metrics.opened, metrics.clicked]
     })
     const csv = [headings, ...rows].map((row) => row.map((cell) => '"' + String(cell).replaceAll('"', '""') + '"').join(',')).join('\n')
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
@@ -316,17 +387,17 @@ function CampaignsPage({ campaigns, events, recommendation, debugRecommendation,
   }
 
   return <>
-    <div className="campaign-heading"><div><div className="eyebrow">BRIGHTPATH ACADEMY · CAMPAIGNS</div><h1>Recent Campaigns</h1><p className="dashboard-school">Demo data for BrightPath Academy campaigns.</p></div><div className="campaign-heading-actions"><button className="secondary-action export-action" onClick={exportReport}>Export Report</button><button className="primary-action" onClick={toggleCreate}>{isCreating ? 'Close form' : 'New Campaign'}</button></div></div>
-    {isCreating && <form className="create-campaign-form" onSubmit={submit}><div><label htmlFor="campaign-name">Campaign name</label><input id="campaign-name" autoFocus maxLength={80} placeholder="e.g. Spring study tips" value={name} onChange={(event) => setName(event.target.value)} /></div><p className="form-help">This demo campaign will be sent to 128 BrightPath families.</p>{error && <p className="campaign-error" role="alert">{error}</p>}<button className="primary-action" type="submit">Create draft</button></form>}
-    <div className="campaign-toolbar"><label className="campaign-search"><span className="sr-only">Search campaigns</span><input type="search" placeholder="Search campaigns" value={search} onChange={(event) => setSearch(event.target.value)} /></label><label><span className="sr-only">Filter by channel</span><select value={channel} onChange={(event) => setChannel(event.target.value)}><option>All channels</option><option>Email</option><option>SMS</option><option>WhatsApp</option></select></label><label><span className="sr-only">Filter by status</span><select value={status} onChange={(event) => setStatus(event.target.value)}><option>All statuses</option><option>Draft</option><option>Sent</option></select></label><label><span className="sr-only">Sort campaigns</span><select value={sort} onChange={(event) => setSort(event.target.value)}><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="name">Name A to Z</option></select></label></div>
+    <div className="campaign-heading"><div><div className="eyebrow">BRIGHTPATH ACADEMY · CAMPAIGNS</div><h1>Recent Campaigns</h1><p className="dashboard-school">Demo data for BrightPath Academy campaigns.</p></div><div className="campaign-heading-actions"><button className="secondary-action export-action" onClick={exportReport}>Export Report</button><button className="primary-action" onClick={() => { setEditing(null); setIsCreating((open) => !open) }}>{isCreating ? 'Close form' : 'New Campaign'}</button></div></div>
+    {(isCreating || editing) && <CampaignForm key={editing?.id ?? 'new'} initial={editing ?? undefined} onSave={saveForm} onCancel={closeForm} />}
+    <div className="campaign-toolbar"><label className="campaign-search"><span className="sr-only">Search campaigns</span><input type="search" placeholder="Search campaigns" value={search} onChange={(event) => setSearch(event.target.value)} /></label><label><span className="sr-only">Filter by channel</span><select value={channel} onChange={(event) => setChannel(event.target.value)}><option>All channels</option><option>Email</option><option>SMS</option><option>WhatsApp</option></select></label><label><span className="sr-only">Filter by campaign type</span><select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}><option>All types</option><option>Email</option><option>SMS</option><option>WhatsApp</option><option>Community update</option></select></label><label><span className="sr-only">Filter by status</span><select value={status} onChange={(event) => setStatus(event.target.value)}><option>All statuses</option><option>Draft</option><option>Sent</option></select></label><label><span className="sr-only">Sort campaigns</span><select value={sort} onChange={(event) => setSort(event.target.value)}><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="name">Campaign name A to Z</option><option value="label">Label A to Z</option><option value="contacts">Most contacts</option></select></label></div>
     <div className="campaign-columns">
       <section className="campaign-list-section" aria-labelledby="campaigns-heading">
         <div className="section-heading"><div><h2 id="campaigns-heading">Campaigns</h2><p>{filteredCampaigns.length} of {campaigns.length} demo campaigns</p></div><span className="demo-data-tag">DEMO DATA</span></div>
-        {campaigns.length === 0 ? <div className="empty-campaigns"><span className="empty-icon">✦</span><h3>No campaigns yet</h3><p>Create a campaign to share an update with the BrightPath community.</p><button className="primary-action" onClick={toggleCreate}>New Campaign</button></div>
+        {campaigns.length === 0 ? <div className="empty-campaigns"><span className="empty-icon">✦</span><h3>No campaigns yet</h3><p>Create a campaign to share an update with the BrightPath community.</p><button className="primary-action" onClick={() => setIsCreating(true)}>New Campaign</button></div>
           : filteredCampaigns.length === 0 ? <div className="empty-campaigns"><h3>No campaigns match these filters</h3><p>Try another search or filter.</p></div>
-          : <div className="campaign-table-wrap"><table className="campaign-table"><thead><tr><th>Campaign name</th><th>Type</th><th>Channel</th><th>Status</th><th>Contacts</th><th>Sent</th><th>Delivered</th><th>Opened</th><th>Clicked</th><th>Actions</th></tr></thead><tbody>{filteredCampaigns.map((item) => {
+          : <div className="campaign-table-wrap"><table className="campaign-table"><thead><tr><th>Campaign Name</th><th>Label</th><th>Campaign Type</th><th>Channels</th><th>Status</th><th>Contacts</th><th>Sent</th><th>Delivered</th><th>Opened</th><th>Clicked</th><th>Action</th></tr></thead><tbody>{filteredCampaigns.map((item) => {
             const metrics = campaignDemoMetrics(item)
-            return <tr key={item.id}><td><strong>{item.name}</strong><small>Created {formatDate(item.createdAt)}</small></td><td>{item.type ?? 'Community update'}</td><td>{item.channel ?? 'Email'}</td><td><span className={'status-pill status-' + item.status}>{item.status === 'sent' ? 'Sent' : 'Draft'}</span></td><td>{metrics.contacts}</td><td>{metrics.sent}</td><td>{metrics.delivered}</td><td>{metrics.opened}</td><td>{metrics.clicked}</td><td><div className="campaign-table-actions"><button className="table-action" onClick={() => openReport(item)}>View report</button><button className="table-action" disabled={item.status === 'sent'} onClick={() => onSend(item.id)}>{item.status === 'sent' ? 'Sent' : 'Send'}</button></div></td></tr>
+            return <tr key={item.id}><td><strong>{item.name}</strong><small>Created {formatDate(item.createdAt)}</small></td><td>{item.label ?? '—'}</td><td><span className="campaign-type-cell"><CampaignTypeIcon type={item.type ?? 'Email'} />{item.type ?? 'Community update'}</span></td><td>{(item.channels ?? [item.channel ?? 'Email']).join(', ')}</td><td><span className={'status-pill status-' + item.status}>{item.status === 'sent' ? 'Sent' : 'Draft'}</span></td><td>{metrics.contacts}</td><td>{metrics.sent}</td><td>{metrics.delivered}</td><td>{metrics.opened}</td><td>{metrics.clicked}</td><td><div className="campaign-table-actions"><button className="table-action" onClick={() => openReport(item)}>View report</button>{item.status === 'draft' && <button className="table-action" onClick={() => { setIsCreating(false); setEditing(item) }}>Edit</button>}<button className="table-action" disabled={item.status === 'sent'} onClick={() => onSend(item.id)}>{item.status === 'sent' ? 'Sent' : 'Send'}</button></div></td></tr>
           })}</tbody></table></div>}
         {report && <section className="report-panel" aria-live="polite" aria-labelledby="report-heading"><div className="report-title-row"><div><div className="eyebrow">CAMPAIGN REPORT</div><h2 id="report-heading">{report.name}</h2></div><button className="icon-button" aria-label="Close report" onClick={() => setReportId(null)}>×</button></div>{report.status === 'sent' ? <><p className="report-subtitle">Sent {formatDate(report.sentAt ?? report.createdAt)} · Demo audience results</p><div className="metric-grid"><Metric label="Delivered" value={String(campaignDemoMetrics(report).delivered)} detail={'of ' + report.audienceSize + ' families'} /><Metric label="Opened" value={String(campaignDemoMetrics(report).opened)} detail="68% open rate" /><Metric label="Clicked" value={String(campaignDemoMetrics(report).clicked)} detail="27% of readers" /></div></> : <div className="report-draft-note"><span>✦</span><div><strong>Your report will be ready after sending.</strong><p>Send this campaign to see delivery, opens, and clicks for your demo audience.</p></div></div>}</section>}
       </section>
