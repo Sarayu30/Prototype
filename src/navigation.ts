@@ -1,6 +1,6 @@
-export type Section = 'Dashboard' | 'Campaigns' | 'Student Leads' | 'Conversations' | 'Analytics' | 'Recommendations' | 'Activated Features'
+export type Section = 'Dashboard' | 'Campaigns' | 'Student Leads' | 'Conversations' | 'Analytics' | 'Automations' | 'Recommendations' | 'Activated Features'
 
-export const sections: Section[] = ['Dashboard', 'Campaigns', 'Student Leads', 'Conversations', 'Analytics', 'Recommendations', 'Activated Features']
+export const sections: Section[] = ['Dashboard', 'Campaigns', 'Student Leads', 'Conversations', 'Analytics', 'Automations', 'Recommendations', 'Activated Features']
 
 const sectionPaths: Record<Section, string> = {
   Dashboard: '/dashboard',
@@ -8,6 +8,7 @@ const sectionPaths: Record<Section, string> = {
   'Student Leads': '/student-leads',
   Conversations: '/conversations',
   Analytics: '/analytics',
+  Automations: '/automations',
   Recommendations: '/recommendations',
   'Activated Features': '/activated-features',
 }

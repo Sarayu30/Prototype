@@ -19,6 +19,8 @@ import {
 import { pathForSection, sectionForPath, sections, type Section } from './navigation'
 import { activateAnalyticsSetup, readAnalyticsSetup, startAnalyticsSetup, updateAnalyticsSetup, type AnalyticsMetric, type AnalyticsSetup, type ReportFrequency } from './analyticsSetup'
 import { createPendingAnalyticsDiagnostics, requestAnalyticsExplanation } from './analyticsExplanation'
+import { dismissAutomationRecommendation, evaluateAutomationRecommendation, hasAutomationRecommendation, type AutomationRecommendationState } from './automationStore'
+import { activateAutomations, readAutomationsSetup, startAutomationsSetup, updateAutomationsSetup, type AutomationsSetup } from './automationsSetup'
 
 const DEMO_EMAIL = 'ravi@brightpath.edu'
 const DEMO_PASSWORD = 'cheerio123'
@@ -106,6 +108,7 @@ function SidebarIcon({ section }: { section: Section }) {
     'Student Leads': <><path d="M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="10" cy="7" r="4" /><path d="M20 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></>,
     Conversations: <><path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8z" /></>,
     Analytics: <><path d="M3 3v18h18" /><path d="m19 9-5 5-4-4-5 5" /></>,
+    Automations: <><path d="M12 3v5" /><path d="m16 7 3-3" /><path d="M19 12h2" /><path d="m16 17 3 3" /><path d="M12 16v5" /><path d="m8 17-3 3" /><path d="M3 12h2" /><path d="m8 7-3-3" /><circle cx="12" cy="12" r="4" /></>,
     Recommendations: <><path d="m12 3 1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2L12 3z" /><path d="m19 14 1.2 2.8L23 18l-2.8 1.2L19 22l-1.2-2.8L15 18l2.8-1.2L19 14z" /></>,
     'Activated Features': <><path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11z" /><path d="m9 12 2 2 4-4" /></>,
   }[section]
@@ -144,15 +147,20 @@ function Dashboard({ section, onNavigate, onLogout }: { section: Section; onNavi
   const [campaigns, setCampaigns] = useState<Campaign[]>(() => readCampaigns(window.localStorage))
   const [events, setEvents] = useState(() => readEvents(window.localStorage))
   const [recommendations, setRecommendations] = useState(() => evaluateAnalyticsRecommendations(window.localStorage, readCampaigns(window.localStorage), readEvents(window.localStorage)))
+  const [automationRecommendation, setAutomationRecommendation] = useState<AutomationRecommendationState>(() => evaluateAutomationRecommendation(window.localStorage, readEvents(window.localStorage)))
   const [analyticsSetup, setAnalyticsSetup] = useState<AnalyticsSetup | null>(() => readAnalyticsSetup(window.localStorage))
   const [analyticsSetupOpen, setAnalyticsSetupOpen] = useState(false)
+  const [automationsSetup, setAutomationsSetup] = useState<AutomationsSetup | null>(() => readAutomationsSetup(window.localStorage))
+  const [automationsSetupOpen, setAutomationsSetupOpen] = useState(false)
   const sentCampaignIds = useRef(new Set(campaigns.filter((campaign) => campaign.status === 'sent').map((campaign) => campaign.id)))
   const requestedExplanationIds = useRef(new Set<string>())
   const activeRecommendation = recommendations.find((recommendation) => !recommendation.dismissedAt) ?? null
-  const analyticsRecommended = activeRecommendation !== null
+  const automationsRecommended = hasAutomationRecommendation(automationRecommendation) && !automationRecommendation.dismissedAt
+  const analyticsRecommended = activeRecommendation !== null || automationsRecommended
 
   useEffect(() => {
     if (section !== 'Analytics') setAnalyticsSetupOpen(false)
+    if (section !== 'Automations') setAutomationsSetupOpen(false)
   }, [section])
 
   useEffect(() => {
@@ -182,6 +190,7 @@ function Dashboard({ section, onNavigate, onLogout }: { section: Section; onNavi
     const updatedEvents = trackCampaignAction(window.localStorage, eventName, campaign, actionToken).events
     setEvents(updatedEvents)
     setRecommendations(evaluateAnalyticsRecommendations(window.localStorage, readCampaigns(window.localStorage), updatedEvents))
+    setAutomationRecommendation(evaluateAutomationRecommendation(window.localStorage, updatedEvents))
   }
 
   function createCampaign(values: CampaignFormValues, sendNow: boolean) {
@@ -238,6 +247,18 @@ function Dashboard({ section, onNavigate, onLogout }: { section: Section; onNavi
     onNavigate('Analytics')
   }
 
+  function dismissAutomationsRecommendation() {
+    setAutomationRecommendation(dismissAutomationRecommendation(window.localStorage))
+  }
+
+  function exploreAutomationsRecommendation() {
+    dismissAutomationsRecommendation()
+    const setup = startAutomationsSetup(window.localStorage)
+    setAutomationsSetup(setup)
+    setAutomationsSetupOpen(setup.status !== 'activated')
+    onNavigate('Automations')
+  }
+
   function beginAnalyticsSetup() {
     const setup = startAnalyticsSetup(window.localStorage)
     setAnalyticsSetup(setup)
@@ -256,6 +277,23 @@ function Dashboard({ section, onNavigate, onLogout }: { section: Section; onNavi
     setAnalyticsSetupOpen(false)
   }
 
+  function beginAutomationsSetup() {
+    const setup = startAutomationsSetup(window.localStorage)
+    setAutomationsSetup(setup)
+    setAutomationsSetupOpen(setup.status !== 'activated')
+  }
+
+  function updateAutomationSetup(changes: Partial<Pick<AutomationsSetup, 'step' | 'trigger' | 'action'>>) {
+    const setup = automationsSetup ?? startAutomationsSetup(window.localStorage)
+    setAutomationsSetup(updateAutomationsSetup(window.localStorage, setup, changes))
+  }
+
+  function finishAutomationsSetup() {
+    const setup = automationsSetup ?? startAutomationsSetup(window.localStorage)
+    setAutomationsSetup(activateAutomations(window.localStorage, setup))
+    setAutomationsSetupOpen(false)
+  }
+
   return <main className="workspace-shell">
     <aside className="workspace-sidebar">
       <div className="sidebar-brand"><Brand /></div>
@@ -268,12 +306,13 @@ function Dashboard({ section, onNavigate, onLogout }: { section: Section; onNavi
       <header className="workspace-topbar"><div><span className="topbar-context">BrightPath Academy</span><span className="topbar-divider">/</span><strong>{section}</strong></div><button className="logout-button" onClick={onLogout}>Log out</button></header>
       <div className="workspace-page">
         {section === 'Dashboard' && <DashboardHome campaigns={campaigns} events={events} recommendation={activeRecommendation} analyticsSetup={analyticsSetup} onNavigate={onNavigate} onResumeAnalyticsSetup={() => { setAnalyticsSetupOpen(true); onNavigate('Analytics') }} onExploreRecommendation={() => activeRecommendation && exploreRecommendation(activeRecommendation.id)} onDismissRecommendation={() => activeRecommendation && dismissRecommendation(activeRecommendation.id)} />}
-        {section === 'Campaigns' && <CampaignsPage campaigns={campaigns} events={events} recommendation={activeRecommendation} debugRecommendation={activeRecommendation ?? recommendations[0] ?? null} onCreate={createCampaign} onUpdate={updateCampaign} onSend={sendCampaign} onViewReport={viewReport} onExploreRecommendation={() => activeRecommendation && exploreRecommendation(activeRecommendation.id)} onDismissRecommendation={() => activeRecommendation && dismissRecommendation(activeRecommendation.id)} />}
+        {section === 'Campaigns' && <CampaignsPage campaigns={campaigns} events={events} recommendation={activeRecommendation} automationRecommendation={automationsRecommended ? automationRecommendation : null} debugRecommendation={activeRecommendation ?? recommendations[0] ?? null} onCreate={createCampaign} onUpdate={updateCampaign} onSend={sendCampaign} onViewReport={viewReport} onExploreRecommendation={() => activeRecommendation && exploreRecommendation(activeRecommendation.id)} onDismissRecommendation={() => activeRecommendation && dismissRecommendation(activeRecommendation.id)} onExploreAutomations={exploreAutomationsRecommendation} onDismissAutomations={dismissAutomationsRecommendation} />}
         {section === 'Student Leads' && <StudentLeadsPage />}
         {section === 'Conversations' && <ConversationsPage />}
         {section === 'Analytics' && <AnalyticsSetupPage setup={analyticsSetup} isOpen={analyticsSetupOpen} onStart={beginAnalyticsSetup} onResume={() => setAnalyticsSetupOpen(true)} onUpdate={updateSetup} onActivate={finishAnalyticsSetup} />}
-        {section === 'Recommendations' && <RecommendationsPage recommendation={recommendations[0] ?? null} onExplore={() => { const recommendation = recommendations[0]; if (recommendation) exploreRecommendation(recommendation.id) }} />}
-        {section === 'Activated Features' && <ActivatedFeaturesPage analyticsSetup={analyticsSetup} />}
+        {section === 'Automations' && <AutomationsSetupPage setup={automationsSetup} isOpen={automationsSetupOpen} onStart={beginAutomationsSetup} onResume={() => setAutomationsSetupOpen(true)} onUpdate={updateAutomationSetup} onActivate={finishAutomationsSetup} />}
+        {section === 'Recommendations' && <RecommendationsPage recommendation={recommendations[0] ?? null} automationRecommendation={hasAutomationRecommendation(automationRecommendation) ? automationRecommendation : null} onExplore={() => { const recommendation = recommendations[0]; if (recommendation) exploreRecommendation(recommendation.id) }} onExploreAutomations={exploreAutomationsRecommendation} />}
+        {section === 'Activated Features' && <ActivatedFeaturesPage analyticsSetup={analyticsSetup} automationsSetup={automationsSetup} />}
       </div>
       <footer className="workspace-footer"><span>© 2026 Cheerio</span><span>Made for your next good day <span className="heart">♥</span></span></footer>
     </div>
@@ -343,7 +382,7 @@ function CampaignForm({ initial, onSave, onCancel }: { initial?: Campaign; onSav
   </form>
 }
 
-function CampaignsPage({ campaigns, events, recommendation, debugRecommendation, onCreate, onUpdate, onSend, onViewReport, onExploreRecommendation, onDismissRecommendation }: { campaigns: Campaign[]; events: ReturnType<typeof readEvents>; recommendation: AnalyticsRecommendation | null; debugRecommendation: AnalyticsRecommendation | null; onCreate: (values: CampaignFormValues, sendNow: boolean) => void; onUpdate: (id: string, values: CampaignFormValues) => void; onSend: (id: string) => void; onViewReport: (campaign: Campaign) => void; onExploreRecommendation: () => void; onDismissRecommendation: () => void }) {
+function CampaignsPage({ campaigns, events, recommendation, automationRecommendation, debugRecommendation, onCreate, onUpdate, onSend, onViewReport, onExploreRecommendation, onDismissRecommendation, onExploreAutomations, onDismissAutomations }: { campaigns: Campaign[]; events: ReturnType<typeof readEvents>; recommendation: AnalyticsRecommendation | null; automationRecommendation: AutomationRecommendationState | null; debugRecommendation: AnalyticsRecommendation | null; onCreate: (values: CampaignFormValues, sendNow: boolean) => void; onUpdate: (id: string, values: CampaignFormValues) => void; onSend: (id: string) => void; onViewReport: (campaign: Campaign) => void; onExploreRecommendation: () => void; onDismissRecommendation: () => void; onExploreAutomations: () => void; onDismissAutomations: () => void }) {
   const [isCreating, setIsCreating] = useState(false)
   const [editing, setEditing] = useState<Campaign | null>(null)
   const [reportId, setReportId] = useState<string | null>(null)
@@ -401,7 +440,7 @@ function CampaignsPage({ campaigns, events, recommendation, debugRecommendation,
           })}</tbody></table></div>}
         {report && <section className="report-panel" aria-live="polite" aria-labelledby="report-heading"><div className="report-title-row"><div><div className="eyebrow">CAMPAIGN REPORT</div><h2 id="report-heading">{report.name}</h2></div><button className="icon-button" aria-label="Close report" onClick={() => setReportId(null)}>×</button></div>{report.status === 'sent' ? <><p className="report-subtitle">Sent {formatDate(report.sentAt ?? report.createdAt)} · Demo audience results</p><div className="metric-grid"><Metric label="Delivered" value={String(campaignDemoMetrics(report).delivered)} detail={'of ' + report.audienceSize + ' families'} /><Metric label="Opened" value={String(campaignDemoMetrics(report).opened)} detail="68% open rate" /><Metric label="Clicked" value={String(campaignDemoMetrics(report).clicked)} detail="27% of readers" /></div></> : <div className="report-draft-note"><span>✦</span><div><strong>Your report will be ready after sending.</strong><p>Send this campaign to see delivery, opens, and clicks for your demo audience.</p></div></div>}</section>}
       </section>
-      <aside className="activity-panel">{recommendation && <section className="campaign-recommendation-card" aria-label="Analytics recommendation"><div className="campaign-recommendation-title"><span className="campaign-recommendation-icon" aria-hidden="true">▥</span><strong>A better way to track your campaigns</strong></div><ExplanationModeLabel recommendation={recommendation} /><p>{recommendation.description}</p><div className="campaign-recommendation-actions"><button className="secondary-action" onClick={onExploreRecommendation}>Explore</button><button className="text-action" onClick={onDismissRecommendation}>Not now</button></div></section>}<div className="section-heading"><div><h2>Recent activity</h2><p>Campaign actions, in order</p></div><span className="activity-count">{events.length}</span></div>{events.length === 0 ? <div className="activity-empty"><span>◷</span><p>Your campaign activity will appear here.</p></div> : <ol className="activity-list">{events.slice(0, 8).map((item) => <li key={item.id}><span className="activity-dot" /><div><p>{item.description}</p><time dateTime={item.timestamp}>{formatDateTime(item.timestamp)}</time></div></li>)}</ol>}</aside>
+      <aside className="activity-panel">{recommendation && <section className="campaign-recommendation-card" aria-label="Analytics recommendation"><div className="campaign-recommendation-title"><span className="campaign-recommendation-icon" aria-hidden="true">▥</span><strong>A better way to track your campaigns</strong></div><ExplanationModeLabel recommendation={recommendation} /><p>{recommendation.description}</p><div className="campaign-recommendation-actions"><button className="secondary-action" onClick={onExploreRecommendation}>Explore</button><button className="text-action" onClick={onDismissRecommendation}>Not now</button></div></section>}{automationRecommendation && <section className="campaign-recommendation-card automation-recommendation-card" aria-label="Automations recommendation"><div className="campaign-recommendation-title"><span className="campaign-recommendation-icon automation-recommendation-icon"><SidebarIcon section="Automations" /></span><strong>Save time with Automations</strong></div><p>Ravi, you’ve successfully sent {automationRecommendation.successfulSendCount} campaigns. Automations can help your team spend less time on routine follow-ups.</p><div className="campaign-recommendation-actions"><button className="secondary-action" onClick={onExploreAutomations}>Explore Automations</button><button className="text-action" onClick={onDismissAutomations}>Not now</button></div></section>}<div className="section-heading"><div><h2>Recent activity</h2><p>Campaign actions, in order</p></div><span className="activity-count">{events.length}</span></div>{events.length === 0 ? <div className="activity-empty"><span>◷</span><p>Your campaign activity will appear here.</p></div> : <ol className="activity-list">{events.slice(0, 8).map((item) => <li key={item.id}><span className="activity-dot" /><div><p>{item.description}</p><time dateTime={item.timestamp}>{formatDateTime(item.timestamp)}</time></div></li>)}</ol>}</aside>
     </div>
     <details className="reviewer-panel"><summary>Reviewer event log <span>Technical event names, IDs, timestamps, and Groq diagnostics</span></summary><ReviewerAiDiagnostics recommendation={debugRecommendation} />{events.length === 0 ? <p className="reviewer-empty">No events have been recorded yet.</p> : <div className="reviewer-table-wrap"><table className="reviewer-table"><thead><tr><th>Event name</th><th>Event ID</th><th>Timestamp</th></tr></thead><tbody>{events.map((item) => <tr key={item.id}><td><code>{item.eventName}</code></td><td><code>{item.id}</code></td><td><time dateTime={item.timestamp}>{formatDateTime(item.timestamp)}</time></td></tr>)}</tbody></table></div>}</details>
   </>
@@ -462,14 +501,22 @@ function AnalyticsSetupPage({ setup, isOpen, onStart, onResume, onUpdate, onActi
   return <><PageHeader eyebrow="BRIGHTPATH ACADEMY · ANALYTICS SETUP" title="Set up Analytics" description="A few simple choices will prepare your campaign reports." /><section className="analytics-setup-form"><div className="analytics-setup-progress"><span>Step {setup.step} of 2</span><span className="feature-status feature-in-progress">Setup in progress</span></div>{setup.step === 1 ? <><h2>Which campaign metrics should we track?</h2><p className="analytics-setup-help">Choose one or more metrics for your reports.</p><div className="analytics-option-list">{metricOptions.map((option) => <label className="analytics-option" key={option.value}><input type="checkbox" checked={setup.metrics.includes(option.value)} onChange={(event) => { const metrics = event.target.checked ? [...setup.metrics, option.value] : setup.metrics.filter((metric) => metric !== option.value); onUpdate({ metrics }) }} /><span><strong>{option.label}</strong><small>{option.description}</small></span></label>)}</div><div className="analytics-setup-actions"><span>{setup.metrics.length} selected</span><button className="primary-action" disabled={setup.metrics.length === 0} onClick={() => onUpdate({ step: 2 })}>Continue</button></div></> : <><h2>How often should reports be prepared?</h2><p className="analytics-setup-help">Choose a frequency that works for your team.</p><div className="analytics-frequency-list">{frequencies.map((option) => <label className="analytics-frequency-option" key={option.value}><input type="radio" name="report-frequency" value={option.value} checked={setup.frequency === option.value} onChange={() => onUpdate({ frequency: option.value })} /><span>{option.label}</span></label>)}</div><div className="analytics-setup-actions"><button className="secondary-action" onClick={() => onUpdate({ step: 1 })}>Back</button><button className="primary-action" disabled={!setup.frequency} onClick={onActivate}>Activate Analytics</button></div></>}</section></>
 }
 
-function RecommendationsPage({ recommendation, onExplore }: { recommendation: AnalyticsRecommendation | null; onExplore: () => void }) {
-  return <><PageHeader eyebrow="BRIGHTPATH ACADEMY" title="Recommendations" description="Next steps based on how your team is using Cheerio." />{recommendation ? <section className="recommendation-detail"><div className="recommendation-detail-icon">▥</div><div className="recommendation-detail-copy"><span className="recommendation-tag">BASED ON YOUR CAMPAIGN ACTIVITY</span><h2>Set up Analytics</h2><ExplanationModeLabel recommendation={recommendation} /><p>{recommendation.description}</p><button className="primary-action" onClick={onExplore}>Explore <span>→</span></button></div></section> : <section className="placeholder-card recommendation-none"><span className="placeholder-icon">✧</span><h2>No recommendations yet</h2><p>Keep using campaigns and their reports. Helpful next steps will appear here when your activity points to them.</p></section>}</>
+function AutomationsSetupPage({ setup, isOpen, onStart, onResume, onUpdate, onActivate }: { setup: AutomationsSetup | null; isOpen: boolean; onStart: () => void; onResume: () => void; onUpdate: (changes: Partial<Pick<AutomationsSetup, 'step' | 'trigger' | 'action'>>) => void; onActivate: () => void }) {
+  if (!setup) return <><PageHeader eyebrow="BRIGHTPATH ACADEMY" title="Automations" description="Set up simple workflows for routine campaign follow-ups." /><section className="analytics-setup-card"><span className="feature-icon"><SidebarIcon section="Automations" /></span><div><h2>Set up Automations</h2><p>Choose a campaign trigger and the follow-up action your team wants to prepare.</p><button className="primary-action" onClick={onStart}>Start setup</button></div></section></>
+  if (setup.status === 'activated') return <><PageHeader eyebrow="BRIGHTPATH ACADEMY" title="Automations" description="Your workflow preferences are saved." /><section className="analytics-setup-card analytics-activated-card"><span className="feature-icon"><SidebarIcon section="Automations" /></span><div><span className="feature-status feature-active">Activated</span><h2>Automations is active</h2><p>When {setup.trigger === 'campaign-sent' ? 'a campaign is sent' : 'a report is viewed'}, Cheerio will prepare {setup.action === 'prepare-follow-up' ? 'a follow-up' : 'a team notification'} in this demo.</p></div></section></>
+  if (!isOpen) return <><PageHeader eyebrow="BRIGHTPATH ACADEMY" title="Automations" description="Continue your saved workflow setup." /><section className="analytics-setup-card analytics-resume-card"><span className="feature-icon"><SidebarIcon section="Automations" /></span><div><h2>Resume Automations Setup</h2><span className="feature-status feature-in-progress">Setup in progress · Step {setup.step} of 2</span><p>Your settings are saved. Resume to continue where you left off.</p><button className="primary-action" onClick={onResume}>Resume Setup</button></div></section></>
+  return <><PageHeader eyebrow="BRIGHTPATH ACADEMY · AUTOMATIONS SETUP" title="Set up Automations" description="Choose a trigger and a simple follow-up action." /><section className="analytics-setup-form"><div className="analytics-setup-progress"><span>Step {setup.step} of 2</span><span className="feature-status feature-in-progress">Setup in progress</span></div>{setup.step === 1 ? <><h2>What should start an automation?</h2><p className="analytics-setup-help">Select the campaign activity to watch.</p><div className="analytics-frequency-list"><label className="analytics-frequency-option"><input type="radio" name="automation-trigger" checked={setup.trigger === 'campaign-sent'} onChange={() => onUpdate({ trigger: 'campaign-sent' })} /><span>When a campaign is sent</span></label><label className="analytics-frequency-option"><input type="radio" name="automation-trigger" checked={setup.trigger === 'report-viewed'} onChange={() => onUpdate({ trigger: 'report-viewed' })} /><span>When a performance report is viewed</span></label></div><div className="analytics-setup-actions"><span>Step 1 of 2</span><button className="primary-action" onClick={() => onUpdate({ step: 2 })}>Continue</button></div></> : <><h2>What should the workflow prepare?</h2><p className="analytics-setup-help">Choose the follow-up that fits your team.</p><div className="analytics-frequency-list"><label className="analytics-frequency-option"><input type="radio" name="automation-action" checked={setup.action === 'prepare-follow-up'} onChange={() => onUpdate({ action: 'prepare-follow-up' })} /><span>Prepare a follow-up</span></label><label className="analytics-frequency-option"><input type="radio" name="automation-action" checked={setup.action === 'notify-team'} onChange={() => onUpdate({ action: 'notify-team' })} /><span>Notify the team</span></label></div><div className="analytics-setup-actions"><button className="secondary-action" onClick={() => onUpdate({ step: 1 })}>Back</button><button className="primary-action" onClick={onActivate}>Activate Automations</button></div></>}</section></>
 }
 
-function ActivatedFeaturesPage({ analyticsSetup }: { analyticsSetup: AnalyticsSetup | null }) {
+function RecommendationsPage({ recommendation, automationRecommendation, onExplore, onExploreAutomations }: { recommendation: AnalyticsRecommendation | null; automationRecommendation: AutomationRecommendationState | null; onExplore: () => void; onExploreAutomations: () => void }) {
+  return <><PageHeader eyebrow="BRIGHTPATH ACADEMY" title="Recommendations" description="Next steps based on how your team is using Cheerio." />{!recommendation && !automationRecommendation ? <section className="placeholder-card recommendation-none"><span className="placeholder-icon">✧</span><h2>No recommendations yet</h2><p>Keep using campaigns and their reports. Helpful next steps will appear here when your activity points to them.</p></section> : <div className="recommendation-list">{recommendation && <section className="recommendation-detail"><div className="recommendation-detail-icon">▥</div><div className="recommendation-detail-copy"><span className="recommendation-tag">BASED ON YOUR CAMPAIGN ACTIVITY</span><h2>Set up Analytics</h2><ExplanationModeLabel recommendation={recommendation} /><p>{recommendation.description}</p><button className="primary-action" onClick={onExplore}>Explore <span>→</span></button></div></section>}{automationRecommendation && <section className="recommendation-detail automation-recommendation-detail"><div className="recommendation-detail-icon"><SidebarIcon section="Automations" /></div><div className="recommendation-detail-copy"><span className="recommendation-tag">BASED ON {automationRecommendation.successfulSendCount} SUCCESSFUL CAMPAIGN SENDS</span><h2>Save time with Automations</h2><p>Ravi, you’ve successfully sent {automationRecommendation.successfulSendCount} campaigns. Automations can help your team spend less time on routine follow-ups.</p><button className="primary-action" onClick={onExploreAutomations}>Explore Automations <span>→</span></button></div></section>}</div>}</>
+}
+
+function ActivatedFeaturesPage({ analyticsSetup, automationsSetup }: { analyticsSetup: AnalyticsSetup | null; automationsSetup: AutomationsSetup | null }) {
   const analyticsStatus = analyticsSetup?.status === 'activated' ? 'Activated' : analyticsSetup ? 'Setup in progress' : 'Not set up'
-  const features = [{ name: 'Campaigns', status: 'Active', icon: '◫' }, { name: 'Student Leads', status: 'Preview', icon: '♙' }, { name: 'Conversations', status: 'Preview', icon: '◌' }, { name: 'Analytics', status: analyticsStatus, icon: '▥' }]
-  return <><PageHeader eyebrow="BRIGHTPATH ACADEMY" title="Activated Features" description="A simple overview of the tools in your workspace." /><div className="feature-grid">{features.map((feature) => <article className="feature-card" key={feature.name}><span className="feature-icon">{feature.icon}</span><div><h2>{feature.name}</h2><p>{feature.status === 'Active' || feature.status === 'Activated' ? 'Ready to use in your workspace' : feature.status === 'Preview' ? 'Demo preview available' : feature.status === 'Setup in progress' ? 'Your Analytics settings are saved' : 'Setup will be available later'}</p></div><span className={'feature-status ' + (feature.status === 'Active' || feature.status === 'Activated' ? 'feature-active' : feature.status === 'Setup in progress' ? 'feature-in-progress' : '')}>{feature.status}</span></article>)}</div></>
+  const automationsStatus = automationsSetup?.status === 'activated' ? 'Activated' : automationsSetup ? 'Setup in progress' : 'Not set up'
+  const features = [{ name: 'Campaigns', status: 'Active', icon: '◫' }, { name: 'Student Leads', status: 'Preview', icon: '♙' }, { name: 'Conversations', status: 'Preview', icon: '◌' }, { name: 'Analytics', status: analyticsStatus, icon: '▥' }, { name: 'Automations', status: automationsStatus, icon: '⟳' }]
+  return <><PageHeader eyebrow="BRIGHTPATH ACADEMY" title="Activated Features" description="A simple overview of the tools in your workspace." /><div className="feature-grid">{features.map((feature) => <article className="feature-card" key={feature.name}><span className="feature-icon">{feature.icon}</span><div><h2>{feature.name}</h2><p>{feature.status === 'Active' || feature.status === 'Activated' ? 'Ready to use in your workspace' : feature.status === 'Preview' ? 'Demo preview available' : feature.status === 'Setup in progress' ? feature.name === 'Automations' ? 'Your Automations settings are saved' : 'Your Analytics settings are saved' : 'Setup will be available later'}</p></div><span className={'feature-status ' + (feature.status === 'Active' || feature.status === 'Activated' ? 'feature-active' : feature.status === 'Setup in progress' ? 'feature-in-progress' : '')}>{feature.status}</span></article>)}</div></>
 }
 
 function Metric({ label, value, detail }: { label: string; value: string; detail: string }) {
