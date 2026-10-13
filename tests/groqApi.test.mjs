@@ -44,7 +44,9 @@ test('Groq completion helper sends the key only as a server-side bearer header',
       return { ok: true, json: async () => ({ choices: [{ message: { content: 'Analytics can help you compare this family update with future campaigns.' } }] }) }
     },
   })
-  assert.equal(result, 'Analytics can help you compare this family update with future campaigns.')
+  assert.equal(result.explanation, 'Analytics can help you compare this family update with future campaigns.')
+  assert.equal(result.model, 'openai/gpt-oss-20b')
+  assert.equal(result.modelFallback, false)
   assert.equal(request.url, 'https://api.groq.com/openai/v1/chat/completions')
   assert.equal(request.options.headers.Authorization, 'Bearer private-test-key')
   assert.equal(JSON.stringify(request.options.body).includes('private-test-key'), false)
@@ -70,7 +72,7 @@ test('server handler rejects unqualified activity before calling Groq and hides 
   assert.equal(failed.headers['Cache-Control'], 'no-store')
   assert.equal(failed.body.debug.errorCode, 'network_error')
   assert.equal(failed.body.debug.keyConfigured, true)
-  assert.equal(failed.body.debug.model, 'openai/gpt-oss-120b')
+  assert.equal(failed.body.debug.model, 'openai/gpt-oss-20b')
 })
 
 test('server identifies a missing .env key without attempting the Groq request', async () => {
@@ -104,7 +106,26 @@ test('server returns the generated explanation and safe success diagnostics afte
   assert.match(result.body.explanation, /compare this update/)
   assert.equal(result.body.debug.status, 'succeeded')
   assert.equal(result.body.debug.keyConfigured, true)
+  assert.equal(result.body.debug.requestedModel, 'openai/gpt-oss-20b')
+  assert.equal(result.body.debug.modelFallback, false)
   assert.equal(JSON.stringify(result.body).includes('private-test-key'), false)
+})
+
+test('unavailable configured model automatically retries with the accessible Groq model', async () => {
+  const requestedModels = []
+  const result = await generateAnalyticsExplanation({ campaignName: 'Family Update', reportViews: 3, daysSinceSend: 2 }, {
+    apiKey: 'private-test-key',
+    fetchImpl: async (_url, options) => {
+      const model = JSON.parse(options.body).model
+      requestedModels.push(model)
+      if (model === 'openai/gpt-oss-20b') return { ok: false, status: 404 }
+      return { ok: true, json: async () => ({ choices: [{ message: { content: 'Analytics can help compare this update with future campaigns.' } }] }) }
+    },
+  })
+  assert.deepEqual(requestedModels, ['openai/gpt-oss-20b', 'openai/gpt-oss-120b'])
+  assert.equal(result.model, 'openai/gpt-oss-120b')
+  assert.equal(result.modelFallback, true)
+  assert.equal(result.requestedModel, 'openai/gpt-oss-20b')
 })
 
 test('client reports Groq only on a successful response and uses the fallback on failure', async () => {

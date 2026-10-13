@@ -113,7 +113,9 @@ function ReviewerAiDiagnostics({ recommendation }: { recommendation: AnalyticsRe
     {!recommendation ? <p>No Analytics recommendation has qualified, so no Groq request was made.</p> : !diagnostics ? <p>Recommendation qualified. Waiting for the server request to start.</p> : <dl>
       <div><dt>Status</dt><dd>{diagnostics.status}</dd></div>
       <div><dt>Key loaded on server</dt><dd>{diagnostics.keyConfigured === null ? 'Unknown — app API was unreachable' : diagnostics.keyConfigured ? 'Yes (value hidden)' : 'No'}</dd></div>
+      <div><dt>Requested model</dt><dd>{diagnostics.requestedModel ?? diagnostics.model ?? 'Not reported by server'}</dd></div>
       <div><dt>Model</dt><dd>{diagnostics.model ?? 'Not reported by server'}</dd></div>
+      {diagnostics.modelFallback && <div><dt>Model fallback</dt><dd>Scout unavailable; used {diagnostics.model}</dd></div>}
       <div><dt>HTTP status</dt><dd>{diagnostics.httpStatus ?? '—'}</dd></div>
       <div><dt>Error code</dt><dd>{diagnostics.errorCode ?? '—'}</dd></div>
       <div><dt>Attempted</dt><dd>{formatDateTime(diagnostics.attemptedAt)}</dd></div>

@@ -4,7 +4,8 @@ import { fileURLToPath } from 'node:url'
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions'
-const DEFAULT_MODEL = 'openai/gpt-oss-120b'
+const DEFAULT_MODEL = 'openai/gpt-oss-20b'
+const AVAILABLE_MODEL_FALLBACK = 'openai/gpt-oss-120b'
 
 export async function loadGroqEnv(envFile = path.join(projectRoot, '.env'), target = process.env) {
   let contents
@@ -29,11 +30,7 @@ function codedError(code, message, httpStatus) {
   return Object.assign(new Error(message), { code, httpStatus })
 }
 
-export async function generateAnalyticsExplanation({ campaignName, reportViews, daysSinceSend }, options = {}) {
-  const apiKey = options.apiKey ?? process.env.GROQ_API_KEY
-  if (typeof apiKey !== 'string' || !apiKey.trim()) throw codedError('missing_api_key', 'GROQ_API_KEY is not configured on the server')
-  const fetchImpl = options.fetchImpl ?? fetch
-  const model = options.model ?? process.env.GROQ_MODEL ?? DEFAULT_MODEL
+async function requestModelExplanation({ campaignName, reportViews, daysSinceSend }, model, fetchImpl, apiKey) {
   let response
   try {
     response = await fetchImpl(GROQ_ENDPOINT, {
@@ -62,6 +59,28 @@ export async function generateAnalyticsExplanation({ campaignName, reportViews, 
   const explanation = data?.choices?.[0]?.message?.content?.trim()
   if (typeof explanation !== 'string' || explanation.length === 0) throw codedError('empty_provider_response', 'Groq returned no explanation text', response.status)
   return explanation.slice(0, 600)
+}
+
+export async function generateAnalyticsExplanation({ campaignName, reportViews, daysSinceSend }, options = {}) {
+  const apiKey = options.apiKey ?? process.env.GROQ_API_KEY
+  if (typeof apiKey !== 'string' || !apiKey.trim()) throw codedError('missing_api_key', 'GROQ_API_KEY is not configured on the server')
+  const fetchImpl = options.fetchImpl ?? fetch
+  const requestedModel = options.model ?? process.env.GROQ_MODEL ?? DEFAULT_MODEL
+  try {
+    const explanation = await requestModelExplanation({ campaignName, reportViews, daysSinceSend }, requestedModel, fetchImpl, apiKey)
+    return { explanation, requestedModel, model: requestedModel, modelFallback: false }
+  } catch (error) {
+    if (requestedModel !== DEFAULT_MODEL || error?.code !== 'provider_http_error' || error?.httpStatus !== 404) throw error
+  }
+  try {
+    const explanation = await requestModelExplanation({ campaignName, reportViews, daysSinceSend }, AVAILABLE_MODEL_FALLBACK, fetchImpl, apiKey)
+    return { explanation, requestedModel, model: AVAILABLE_MODEL_FALLBACK, modelFallback: true }
+  } catch (error) {
+    error.requestedModel = requestedModel
+    error.failedModel = AVAILABLE_MODEL_FALLBACK
+    error.modelFallback = true
+    throw error
+  }
 }
 
 async function readRequestBody(request, maximumBytes = 8192) {
@@ -99,9 +118,12 @@ export function createGroqApiHandler(options = {}) {
         return
       }
       const daysSinceSend = Math.min(7, Math.max(0, Math.floor((Date.now() - sentAt) / (24 * 60 * 60 * 1000))))
-      const explanation = await generateAnalyticsExplanation({ campaignName: body.campaignName, reportViews: qualifyingViewCount, daysSinceSend }, options)
+      const generated = await generateAnalyticsExplanation({ campaignName: body.campaignName, reportViews: qualifyingViewCount, daysSinceSend }, options)
       response.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
-      response.end(JSON.stringify({ ok: true, explanation, debug: { status: 'succeeded', errorCode: null, message: 'Groq returned a personalized explanation.', keyConfigured, model, httpStatus: 200, attemptedAt, completedAt: new Date().toISOString() } }))
+      const message = generated.modelFallback
+        ? `Requested model ${generated.requestedModel} was unavailable; Groq generated the explanation with ${generated.model}.`
+        : `Groq generated the explanation with ${generated.model}.`
+      response.end(JSON.stringify({ ok: true, explanation: generated.explanation, debug: { status: 'succeeded', errorCode: null, message, keyConfigured, model: generated.model, requestedModel: generated.requestedModel, modelFallback: generated.modelFallback, httpStatus: 200, attemptedAt, completedAt: new Date().toISOString() } }))
     } catch (error) {
       const status = error?.statusCode ?? (error?.code === 'missing_api_key' || !keyConfigured ? 503 : 502)
       const errorCode = error?.code ?? 'request_error'
@@ -117,7 +139,7 @@ export function createGroqApiHandler(options = {}) {
                 ? 'The request body exceeded the allowed size.'
                 : 'The server could not generate an AI explanation.'
       response.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
-      response.end(JSON.stringify({ ok: false, error: message, debug: { status: 'failed', errorCode, message, keyConfigured, model, httpStatus: error?.httpStatus ?? status, attemptedAt, completedAt: new Date().toISOString() } }))
+      response.end(JSON.stringify({ ok: false, error: message, debug: { status: 'failed', errorCode, message, keyConfigured, model: error?.failedModel ?? model, requestedModel: error?.requestedModel ?? model, modelFallback: Boolean(error?.modelFallback), httpStatus: error?.httpStatus ?? status, attemptedAt, completedAt: new Date().toISOString() } }))
     }
   }
 }

@@ -235,8 +235,11 @@ button, input { font: inherit; }
 .campaign-recommendation-title { display: flex; align-items: center; gap: 9px; color: #51486b; font-size: 10px; }
 .campaign-recommendation-icon { display: grid; place-items: center; flex: 0 0 28px; width: 28px; height: 28px; border-radius: 8px; background: #ebe4fa; color: #7457c1; font-size: 13px; }
 .campaign-recommendation-card > p { margin: 8px 0 10px; color: #777187; font-size: 9px; line-height: 1.55; }
-.campaign-recommendation-actions { display: flex; align-items: center; gap: 10px; }
-.campaign-recommendation-actions .secondary-action, .campaign-recommendation-actions .text-action { font-size: 9px; }
+.campaign-recommendation-actions, .recommendation-banner-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+.campaign-recommendation-actions .secondary-action, .recommendation-banner-actions .secondary-action { display: inline-flex; flex: 0 0 auto; min-height: 34px; align-items: center; justify-content: center; padding: 0 13px; border: 1px solid #7254c7; border-radius: 8px; background: #7254c7; color: #fff; font-size: 10px; font-weight: 700; line-height: 1; white-space: nowrap; }
+.campaign-recommendation-actions .secondary-action:hover, .recommendation-banner-actions .secondary-action:hover { border-color: #6042b3; background: #6042b3; color: #fff; }
+.campaign-recommendation-actions .text-action, .recommendation-banner-actions .text-action { display: inline-flex; flex: 0 0 auto; min-height: 34px; align-items: center; justify-content: center; padding: 0 12px; border: 1px solid #e2daf2; border-radius: 8px; background: #fff; color: #7153c4; font-size: 10px; font-weight: 700; line-height: 1; white-space: nowrap; }
+.campaign-recommendation-actions .text-action:hover, .recommendation-banner-actions .text-action:hover { border-color: #c9b9e9; background: #f8f5ff; color: #5137a2; }
 .recommendation-detail-icon { display: grid; place-items: center; flex: 0 0 45px; width: 45px; height: 45px; border-radius: 13px; background: #eee9fa; color: #7254c7; font-size: 20px; }
 .recommendation-detail-copy h2 { margin: 8px 0; color: #39354a; font: 700 21px 'Manrope', sans-serif; }
 .recommendation-detail-copy p { max-width: 540px; margin: 0 0 17px; color: #777187; font-size: 11px; line-height: 1.7; }

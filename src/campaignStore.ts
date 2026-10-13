@@ -10,6 +10,8 @@ export type AnalyticsAiDiagnostics = {
   message: string
   keyConfigured: boolean | null
   model: string | null
+  requestedModel?: string
+  modelFallback?: boolean
   httpStatus?: number
   attemptedAt: string
   completedAt?: string
