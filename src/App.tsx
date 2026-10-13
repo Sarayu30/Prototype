@@ -14,6 +14,7 @@ import {
   trackCampaignAction,
 } from './campaignStore'
 import { pathForSection, sectionForPath, sections, type Section } from './navigation'
+import { activateAnalyticsSetup, readAnalyticsSetup, startAnalyticsSetup, updateAnalyticsSetup, type AnalyticsMetric, type AnalyticsSetup, type ReportFrequency } from './analyticsSetup'
 
 const DEMO_EMAIL = 'ravi@brightpath.edu'
 const DEMO_PASSWORD = 'cheerio123'
@@ -100,9 +101,15 @@ function Dashboard({ section, onNavigate, onLogout }: { section: Section; onNavi
   const [campaigns, setCampaigns] = useState<Campaign[]>(() => readCampaigns(window.localStorage))
   const [events, setEvents] = useState(() => readEvents(window.localStorage))
   const [recommendations, setRecommendations] = useState(() => evaluateAnalyticsRecommendations(window.localStorage, readCampaigns(window.localStorage), readEvents(window.localStorage)))
+  const [analyticsSetup, setAnalyticsSetup] = useState<AnalyticsSetup | null>(() => readAnalyticsSetup(window.localStorage))
+  const [analyticsSetupOpen, setAnalyticsSetupOpen] = useState(false)
   const sentCampaignIds = useRef(new Set(campaigns.filter((campaign) => campaign.status === 'sent').map((campaign) => campaign.id)))
   const activeRecommendation = recommendations.find((recommendation) => !recommendation.dismissedAt) ?? null
   const analyticsRecommended = activeRecommendation !== null
+
+  useEffect(() => {
+    if (section !== 'Analytics') setAnalyticsSetupOpen(false)
+  }, [section])
 
   function trackAction(eventName: CampaignEventName, campaign: Campaign, actionToken?: string) {
     const updatedEvents = trackCampaignAction(window.localStorage, eventName, campaign, actionToken).events
@@ -140,7 +147,28 @@ function Dashboard({ section, onNavigate, onLogout }: { section: Section; onNavi
 
   function exploreRecommendation(recommendationId: string) {
     dismissRecommendation(recommendationId)
+    const setup = startAnalyticsSetup(window.localStorage)
+    setAnalyticsSetup(setup)
+    setAnalyticsSetupOpen(setup.status !== 'activated')
     onNavigate('Analytics')
+  }
+
+  function beginAnalyticsSetup() {
+    const setup = startAnalyticsSetup(window.localStorage)
+    setAnalyticsSetup(setup)
+    setAnalyticsSetupOpen(setup.status !== 'activated')
+  }
+
+  function updateSetup(changes: Partial<Pick<AnalyticsSetup, 'step' | 'metrics' | 'frequency'>>) {
+    const setup = analyticsSetup ?? startAnalyticsSetup(window.localStorage)
+    const updated = updateAnalyticsSetup(window.localStorage, setup, changes)
+    setAnalyticsSetup(updated)
+  }
+
+  function finishAnalyticsSetup() {
+    const setup = analyticsSetup ?? startAnalyticsSetup(window.localStorage)
+    setAnalyticsSetup(activateAnalyticsSetup(window.localStorage, setup))
+    setAnalyticsSetupOpen(false)
   }
 
   return <main className="workspace-shell">
@@ -158,9 +186,9 @@ function Dashboard({ section, onNavigate, onLogout }: { section: Section; onNavi
         {section === 'Campaigns' && <CampaignsPage campaigns={campaigns} events={events} recommendation={activeRecommendation} onCreate={createCampaign} onSend={sendCampaign} onViewReport={viewReport} onExploreRecommendation={() => activeRecommendation && exploreRecommendation(activeRecommendation.id)} onDismissRecommendation={() => activeRecommendation && dismissRecommendation(activeRecommendation.id)} />}
         {section === 'Student Leads' && <StudentLeadsPage />}
         {section === 'Conversations' && <ConversationsPage />}
-        {section === 'Analytics' && <PlaceholderPage section="Analytics" title="A clearer view is on the way" description="Set up Analytics to understand how your school’s outreach is performing. This preview will become your place for campaign and engagement insights." />}
+        {section === 'Analytics' && <AnalyticsSetupPage setup={analyticsSetup} isOpen={analyticsSetupOpen} onStart={beginAnalyticsSetup} onResume={() => setAnalyticsSetupOpen(true)} onUpdate={updateSetup} onActivate={finishAnalyticsSetup} />}
         {section === 'Recommendations' && <RecommendationsPage recommendation={recommendations[0] ?? null} onExplore={() => { const recommendation = recommendations[0]; if (recommendation) exploreRecommendation(recommendation.id) }} />}
-        {section === 'Activated Features' && <ActivatedFeaturesPage />}
+        {section === 'Activated Features' && <ActivatedFeaturesPage analyticsSetup={analyticsSetup} />}
       </div>
       <footer className="workspace-footer"><span>© 2026 Cheerio</span><span>Made for your next good day <span className="heart">♥</span></span></footer>
     </div>
@@ -289,17 +317,36 @@ function PageHeader({ eyebrow, title, description }: { eyebrow: string; title: s
   return <div className="page-heading simple-page-heading"><div><div className="eyebrow">{eyebrow}</div><h1>{title}</h1><p>{description}</p></div></div>
 }
 
-function PlaceholderPage({ section, title, description }: { section: string; title: string; description: string }) {
-  return <><PageHeader eyebrow={'BRIGHTPATH ACADEMY · ' + section.toUpperCase()} title={section} description={description} /><section className="placeholder-card"><span className="placeholder-icon">{section === 'Analytics' ? '▥' : '✧'}</span><h2>{title}</h2><p>This section is a preview for your BrightPath workspace. Your existing campaign workflow is ready to use while this area takes shape.</p><span className="coming-soon">COMING SOON</span></section></>
+function AnalyticsSetupPage({ setup, isOpen, onStart, onResume, onUpdate, onActivate }: { setup: AnalyticsSetup | null; isOpen: boolean; onStart: () => void; onResume: () => void; onUpdate: (changes: Partial<Pick<AnalyticsSetup, 'step' | 'metrics' | 'frequency'>>) => void; onActivate: () => void }) {
+  const metricOptions: { value: AnalyticsMetric; label: string; description: string }[] = [
+    { value: 'delivered', label: 'Delivered', description: 'Messages successfully delivered to families' },
+    { value: 'opens', label: 'Opens', description: 'How many families opened a campaign' },
+    { value: 'clicks', label: 'Clicks', description: 'Engagement with links in your campaigns' },
+    { value: 'engagement', label: 'Engagement', description: 'A combined view of campaign responses' },
+  ]
+  const frequencies: { value: ReportFrequency; label: string }[] = [
+    { value: 'weekly', label: 'Weekly' },
+    { value: 'monthly', label: 'Monthly' },
+    { value: 'quarterly', label: 'Quarterly' },
+  ]
+
+  if (!setup) return <><PageHeader eyebrow="BRIGHTPATH ACADEMY" title="Analytics" description="Choose the campaign results you want to track and how often to review them." /><section className="analytics-setup-card"><span className="feature-icon">▥</span><div><h2>Set up Analytics</h2><p>Choose a few practical settings to prepare your campaign reports.</p><button className="primary-action" onClick={onStart}>Start setup</button></div></section></>
+
+  if (setup.status === 'activated') return <><PageHeader eyebrow="BRIGHTPATH ACADEMY" title="Analytics" description="Your campaign reporting preferences are ready." /><section className="analytics-setup-card analytics-activated-card"><span className="feature-icon">✓</span><div><span className="feature-status feature-active">Activated</span><h2>Analytics is active</h2><p>Tracking {setup.metrics.map((metric) => metricOptions.find((option) => option.value === metric)?.label ?? metric).join(', ')} with {setup.frequency} reports.</p></div></section></>
+
+  if (!isOpen) return <><PageHeader eyebrow="BRIGHTPATH ACADEMY" title="Analytics" description="Continue setting up your campaign reports." /><section className="analytics-setup-card"><span className="feature-icon">▥</span><div><span className="feature-status feature-in-progress">Setup in progress · Step {setup.step} of 2</span><h2>Resume Analytics setup</h2><p>Your settings are saved. Resume to continue where you left off.</p><button className="primary-action" onClick={onResume}>Resume Setup</button></div></section></>
+
+  return <><PageHeader eyebrow="BRIGHTPATH ACADEMY · ANALYTICS SETUP" title="Set up Analytics" description="A few simple choices will prepare your campaign reports." /><section className="analytics-setup-form"><div className="analytics-setup-progress"><span>Step {setup.step} of 2</span><span className="feature-status feature-in-progress">Setup in progress</span></div>{setup.step === 1 ? <><h2>Which campaign metrics should we track?</h2><p className="analytics-setup-help">Choose one or more metrics for your reports.</p><div className="analytics-option-list">{metricOptions.map((option) => <label className="analytics-option" key={option.value}><input type="checkbox" checked={setup.metrics.includes(option.value)} onChange={(event) => { const metrics = event.target.checked ? [...setup.metrics, option.value] : setup.metrics.filter((metric) => metric !== option.value); onUpdate({ metrics }) }} /><span><strong>{option.label}</strong><small>{option.description}</small></span></label>)}</div><div className="analytics-setup-actions"><span>{setup.metrics.length} selected</span><button className="primary-action" disabled={setup.metrics.length === 0} onClick={() => onUpdate({ step: 2 })}>Continue</button></div></> : <><h2>How often should reports be prepared?</h2><p className="analytics-setup-help">Choose a frequency that works for your team.</p><div className="analytics-frequency-list">{frequencies.map((option) => <label className="analytics-frequency-option" key={option.value}><input type="radio" name="report-frequency" value={option.value} checked={setup.frequency === option.value} onChange={() => onUpdate({ frequency: option.value })} /><span>{option.label}</span></label>)}</div><div className="analytics-setup-actions"><button className="secondary-action" onClick={() => onUpdate({ step: 1 })}>Back</button><button className="primary-action" disabled={!setup.frequency} onClick={onActivate}>Activate Analytics</button></div></>}</section></>
 }
 
 function RecommendationsPage({ recommendation, onExplore }: { recommendation: AnalyticsRecommendation | null; onExplore: () => void }) {
   return <><PageHeader eyebrow="BRIGHTPATH ACADEMY" title="Recommendations" description="Next steps based on how your team is using Cheerio." />{recommendation ? <section className="recommendation-detail"><div className="recommendation-detail-icon">▥</div><div className="recommendation-detail-copy"><span className="recommendation-tag">BASED ON YOUR CAMPAIGN ACTIVITY</span><h2>Set up Analytics</h2><p>{recommendation.description}</p><button className="primary-action" onClick={onExplore}>Explore <span>→</span></button></div></section> : <section className="placeholder-card recommendation-none"><span className="placeholder-icon">✧</span><h2>No recommendations yet</h2><p>Keep using campaigns and their reports. Helpful next steps will appear here when your activity points to them.</p></section>}</>
 }
 
-function ActivatedFeaturesPage() {
-  const features = [{ name: 'Campaigns', status: 'Active', icon: '◫' }, { name: 'Student Leads', status: 'Preview', icon: '♙' }, { name: 'Conversations', status: 'Preview', icon: '◌' }, { name: 'Analytics', status: 'Not set up', icon: '▥' }]
-  return <><PageHeader eyebrow="BRIGHTPATH ACADEMY" title="Activated Features" description="A simple overview of the tools in your workspace." /><div className="feature-grid">{features.map((feature) => <article className="feature-card" key={feature.name}><span className="feature-icon">{feature.icon}</span><div><h2>{feature.name}</h2><p>{feature.status === 'Active' ? 'Ready to use in your workspace' : feature.status === 'Preview' ? 'Demo preview available' : 'Setup will be available later'}</p></div><span className={'feature-status ' + (feature.status === 'Active' ? 'feature-active' : '')}>{feature.status}</span></article>)}</div></>
+function ActivatedFeaturesPage({ analyticsSetup }: { analyticsSetup: AnalyticsSetup | null }) {
+  const analyticsStatus = analyticsSetup?.status === 'activated' ? 'Activated' : analyticsSetup ? 'Setup in progress' : 'Not set up'
+  const features = [{ name: 'Campaigns', status: 'Active', icon: '◫' }, { name: 'Student Leads', status: 'Preview', icon: '♙' }, { name: 'Conversations', status: 'Preview', icon: '◌' }, { name: 'Analytics', status: analyticsStatus, icon: '▥' }]
+  return <><PageHeader eyebrow="BRIGHTPATH ACADEMY" title="Activated Features" description="A simple overview of the tools in your workspace." /><div className="feature-grid">{features.map((feature) => <article className="feature-card" key={feature.name}><span className="feature-icon">{feature.icon}</span><div><h2>{feature.name}</h2><p>{feature.status === 'Active' || feature.status === 'Activated' ? 'Ready to use in your workspace' : feature.status === 'Preview' ? 'Demo preview available' : feature.status === 'Setup in progress' ? 'Your Analytics settings are saved' : 'Setup will be available later'}</p></div><span className={'feature-status ' + (feature.status === 'Active' || feature.status === 'Activated' ? 'feature-active' : feature.status === 'Setup in progress' ? 'feature-in-progress' : '')}>{feature.status}</span></article>)}</div></>
 }
 
 function Metric({ label, value, detail }: { label: string; value: string; detail: string }) {

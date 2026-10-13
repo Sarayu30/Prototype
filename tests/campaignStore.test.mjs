@@ -18,6 +18,13 @@ import {
   shouldRecommendAnalytics,
 } from '../src/campaignStore.ts'
 import { pathForSection, sectionForPath, sections } from '../src/navigation.ts'
+import {
+  ANALYTICS_SETUP_STORAGE_KEY,
+  activateAnalyticsSetup,
+  readAnalyticsSetup,
+  startAnalyticsSetup,
+  updateAnalyticsSetup,
+} from '../src/analyticsSetup.ts'
 
 class MemoryStorage {
   values = new Map()
@@ -87,6 +94,26 @@ test('sidebar sections have stable individual URLs and resolve on refresh or his
   assert.deepEqual(expectedPaths.map(sectionForPath), sections)
   assert.equal(sectionForPath('/campaigns/'), 'Campaigns')
   assert.equal(sectionForPath('/not-a-section'), null)
+})
+
+test('Analytics setup saves progress, resumes the same step and values, and persists activation', () => {
+  const storage = new MemoryStorage()
+  const started = startAnalyticsSetup(storage)
+  const withMetrics = updateAnalyticsSetup(storage, started, { metrics: ['opens', 'clicks'] })
+  const stepTwo = updateAnalyticsSetup(storage, withMetrics, { step: 2 })
+  const savedBeforeLeaving = readAnalyticsSetup(storage)
+  assert.deepEqual(savedBeforeLeaving, stepTwo)
+
+  const resumed = startAnalyticsSetup(storage)
+  assert.deepEqual(resumed, stepTwo)
+  const withFrequency = updateAnalyticsSetup(storage, resumed, { frequency: 'monthly' })
+  const activated = activateAnalyticsSetup(storage, withFrequency)
+  assert.equal(activated.status, 'activated')
+  assert.equal(activated.step, 2)
+  assert.deepEqual(activated.metrics, ['opens', 'clicks'])
+  assert.equal(activated.frequency, 'monthly')
+  assert.deepEqual(readAnalyticsSetup(storage), activated)
+  assert.equal(JSON.parse(storage.getItem(ANALYTICS_SETUP_STORAGE_KEY)).status, 'activated')
 })
 
 test('campaign drafts and sent status survive reloads', () => {
