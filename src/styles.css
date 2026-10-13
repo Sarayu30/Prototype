@@ -473,3 +473,4 @@ button, input { font: inherit; }
 .reviewer-ai-diagnostics dt { margin-bottom: 3px; color: #9992a5; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
 .reviewer-ai-diagnostics dd { margin: 0; color: #514a62; font-size: 10px; overflow-wrap: anywhere; }
 .reviewer-ai-diagnostics .reviewer-ai-message { grid-column: 1 / -1; }
+.recommendation-home > .recommendation-card + .recommendation-card { margin-top: 12px; }
