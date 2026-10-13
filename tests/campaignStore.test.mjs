@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  CAMPAIGN_STORAGE_KEY,
   EVENT_STORAGE_KEY,
   createId,
+  readCampaigns,
   readEvents,
+  saveCampaigns,
   trackCampaignAction,
+  shouldRecommendAnalytics,
 } from '../src/campaignStore.ts'
 
 class MemoryStorage {
@@ -59,6 +63,90 @@ test('events survive reloads and malformed saved data is handled safely', () => 
   assert.deepEqual(readEvents(storage), [])
 })
 
+test('campaign drafts and sent status survive reloads', () => {
+  const storage = new MemoryStorage()
+  const draft = { ...campaign, status: 'draft', sentAt: undefined }
+  saveCampaigns(storage, [draft])
+  assert.equal(readCampaigns(storage)[0].status, 'draft')
+
+  const sent = { ...draft, status: 'sent', sentAt: '2026-10-13T06:30:00.000Z' }
+  saveCampaigns(storage, [sent])
+  assert.equal(readCampaigns(storage)[0].status, 'sent')
+  assert.equal(readCampaigns(storage)[0].sentAt, sent.sentAt)
+  assert.equal(JSON.parse(storage.getItem(CAMPAIGN_STORAGE_KEY)).length, 1)
+})
+
+test('campaign workflow persists a draft, sends it once, and records every report opening', () => {
+  const storage = new MemoryStorage()
+  const createdAt = new Date().toISOString()
+  const draft = { ...campaign, status: 'draft', createdAt, sentAt: undefined }
+
+  saveCampaigns(storage, [draft])
+  const created = trackCampaignAction(storage, 'campaign.created', draft)
+  assert.equal(created.recorded, true)
+
+  const sent = { ...draft, status: 'sent', sentAt: new Date().toISOString() }
+  saveCampaigns(storage, [sent])
+  const sentEvent = trackCampaignAction(storage, 'campaign.sent', sent)
+  const duplicateSend = trackCampaignAction(storage, 'campaign.sent', sent)
+  assert.equal(sentEvent.recorded, true)
+  assert.equal(duplicateSend.recorded, false)
+
+  const firstReport = trackCampaignAction(storage, 'campaign.performance_report_viewed', sent, createId('view'))
+  const secondReport = trackCampaignAction(storage, 'campaign.performance_report_viewed', sent, createId('view'))
+  assert.equal(firstReport.recorded, true)
+  assert.equal(secondReport.recorded, true)
+
+  const reloadedCampaigns = readCampaigns(storage)
+  const reloadedEvents = readEvents(storage)
+  assert.equal(reloadedCampaigns[0].status, 'sent')
+  assert.equal(reloadedCampaigns[0].sentAt, sent.sentAt)
+  assert.equal(reloadedEvents.length, 4)
+  assert.equal(new Set(reloadedEvents.map((event) => event.id)).size, 4)
+  assert.ok(reloadedEvents.every((event) => Number.isFinite(Date.parse(event.timestamp))))
+  assert.ok(reloadedEvents.some((event) => event.description === 'Study tips was created as a draft.'))
+  assert.ok(reloadedEvents.some((event) => event.description === 'Study tips was sent to 128 BrightPath families.'))
+  assert.equal(reloadedEvents.filter((event) => event.eventName === 'campaign.performance_report_viewed').length, 2)
+})
+
 test('event IDs are distinct', () => {
   assert.notEqual(createId('evt'), createId('evt'))
+})
+
+
+test('separate report openings are tracked once each and repeated handling is deduplicated', () => {
+  const storage = new MemoryStorage()
+  const first = trackCampaignAction(storage, 'campaign.performance_report_viewed', campaign, 'open-one')
+  const repeatedHandler = trackCampaignAction(storage, 'campaign.performance_report_viewed', campaign, 'open-one')
+  const second = trackCampaignAction(storage, 'campaign.performance_report_viewed', campaign, 'open-two')
+
+  assert.equal(first.recorded, true)
+  assert.equal(repeatedHandler.recorded, false)
+  assert.equal(second.recorded, true)
+  assert.equal(readEvents(storage).length, 2)
+})
+
+test('recommends Analytics after three report views within seven days of sending', () => {
+  const sentCampaign = { ...campaign, sentAt: '2026-10-01T12:00:00.000Z' }
+  const reportView = (id, timestamp) => ({
+    id,
+    eventName: 'campaign.performance_report_viewed',
+    campaignId: sentCampaign.id,
+    description: 'Viewed campaign report.',
+    timestamp,
+    idempotencyKey: id,
+  })
+  const views = [
+    reportView('view-1', '2026-10-01T13:00:00.000Z'),
+    reportView('view-2', '2026-10-03T10:00:00.000Z'),
+    reportView('view-3', '2026-10-08T12:00:00.000Z'),
+  ]
+
+  assert.equal(shouldRecommendAnalytics([sentCampaign], views.slice(0, 2)), false)
+  assert.equal(shouldRecommendAnalytics([sentCampaign], views), true)
+  assert.equal(shouldRecommendAnalytics([sentCampaign], [
+    ...views.slice(0, 2),
+    reportView('view-late', '2026-10-08T12:00:01.000Z'),
+  ]), false)
+  assert.equal(shouldRecommendAnalytics([campaign], views), false)
 })

@@ -67,12 +67,28 @@ export function recordEvent(storage: StorageLike, input: NewTrackedEvent): { eve
   return { events: updated, event, recorded: true }
 }
 
-export function trackCampaignAction(storage: StorageLike, eventName: CampaignEventName, campaign: Campaign) {
+export function trackCampaignAction(storage: StorageLike, eventName: CampaignEventName, campaign: Campaign, actionToken?: string) {
   return recordEvent(storage, {
     eventName,
     campaignId: campaign.id,
     description: describeCampaignAction(eventName, campaign),
-    idempotencyKey: `${campaign.id}:${eventName}`,
+    idempotencyKey: `${campaign.id}:${eventName}${actionToken ? `:${actionToken}` : ''}`,
+  })
+}
+
+export function shouldRecommendAnalytics(campaigns: Campaign[], events: TrackedEvent[]): boolean {
+  const reportViews = events.filter((event) => event.eventName === 'campaign.performance_report_viewed')
+  return campaigns.some((campaign) => {
+    if (campaign.status !== 'sent' || !campaign.sentAt) return false
+    const sentAt = Date.parse(campaign.sentAt)
+    if (!Number.isFinite(sentAt)) return false
+    const sevenDaysLater = sentAt + 7 * 24 * 60 * 60 * 1000
+    const viewsInWindow = reportViews.filter((event) => {
+      if (event.campaignId !== campaign.id) return false
+      const viewedAt = Date.parse(event.timestamp)
+      return Number.isFinite(viewedAt) && viewedAt >= sentAt && viewedAt <= sevenDaysLater
+    })
+    return viewsInWindow.length >= 3
   })
 }
 
