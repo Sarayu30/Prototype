@@ -1,5 +1,6 @@
 export const EVENT_STORAGE_KEY = 'cheerio:activity-events'
 export const CAMPAIGN_STORAGE_KEY = 'cheerio:campaigns'
+export const RECOMMENDATION_STORAGE_KEY = 'cheerio:recommendations'
 
 export type CampaignStatus = 'draft' | 'sent'
 
@@ -24,6 +25,15 @@ export type TrackedEvent = {
   description: string
   timestamp: string
   idempotencyKey: string
+}
+
+export type AnalyticsRecommendation = {
+  id: string
+  type: 'analytics'
+  campaignId: string
+  campaignName: string
+  description: string
+  createdAt: string
 }
 
 export type StorageLike = Pick<Storage, 'getItem' | 'setItem'>
@@ -90,6 +100,49 @@ export function shouldRecommendAnalytics(campaigns: Campaign[], events: TrackedE
     })
     return viewsInWindow.length >= 3
   })
+}
+
+export function readRecommendations(storage: StorageLike): AnalyticsRecommendation[] {
+  try {
+    const value: unknown = JSON.parse(storage.getItem(RECOMMENDATION_STORAGE_KEY) ?? '[]')
+    if (!Array.isArray(value)) return []
+    return value.filter((recommendation): recommendation is AnalyticsRecommendation =>
+      typeof recommendation?.id === 'string' &&
+      recommendation?.type === 'analytics' &&
+      typeof recommendation?.campaignId === 'string' &&
+      typeof recommendation?.campaignName === 'string' &&
+      typeof recommendation?.description === 'string' &&
+      typeof recommendation?.createdAt === 'string',
+    )
+  } catch {
+    return []
+  }
+}
+
+export function evaluateAnalyticsRecommendations(
+  storage: StorageLike,
+  campaigns: Campaign[],
+  events: TrackedEvent[],
+): AnalyticsRecommendation[] {
+  const recommendations = readRecommendations(storage)
+  const recommendedCampaignIds = new Set(recommendations.map((recommendation) => recommendation.campaignId))
+  const qualifyingCampaigns = campaigns.filter((campaign) =>
+    !recommendedCampaignIds.has(campaign.id) && shouldRecommendAnalytics([campaign], events),
+  )
+
+  if (qualifyingCampaigns.length === 0) return recommendations
+
+  const newRecommendations = qualifyingCampaigns.map((campaign): AnalyticsRecommendation => ({
+    id: createId('rec'),
+    type: 'analytics',
+    campaignId: campaign.id,
+    campaignName: campaign.name,
+    description: "You've checked your campaign performance several times this week. Analytics can help you understand your results and spot trends.",
+    createdAt: new Date().toISOString(),
+  }))
+  const updated = [...newRecommendations, ...recommendations]
+  storage.setItem(RECOMMENDATION_STORAGE_KEY, JSON.stringify(updated))
+  return updated
 }
 
 export function readCampaigns(storage: StorageLike): Campaign[] {

@@ -3,9 +3,12 @@ import test from 'node:test'
 import {
   CAMPAIGN_STORAGE_KEY,
   EVENT_STORAGE_KEY,
+  RECOMMENDATION_STORAGE_KEY,
   createId,
+  evaluateAnalyticsRecommendations,
   readCampaigns,
   readEvents,
+  readRecommendations,
   saveCampaigns,
   trackCampaignAction,
   shouldRecommendAnalytics,
@@ -149,4 +152,52 @@ test('recommends Analytics after three report views within seven days of sending
     reportView('view-late', '2026-10-08T12:00:01.000Z'),
   ]), false)
   assert.equal(shouldRecommendAnalytics([campaign], views), false)
+})
+
+test('automatically persists one recommendation at three report views, but not one or two', () => {
+  const storage = new MemoryStorage()
+  const sent = { ...campaign, sentAt: new Date().toISOString() }
+  saveCampaigns(storage, [sent])
+  trackCampaignAction(storage, 'campaign.sent', sent)
+
+  const recommendationsAfter = (viewCount) => {
+    for (let index = 0; index < viewCount; index += 1) {
+      const action = trackCampaignAction(storage, 'campaign.performance_report_viewed', sent, createId('view'))
+      evaluateAnalyticsRecommendations(storage, readCampaigns(storage), action.events)
+    }
+    return readRecommendations(storage)
+  }
+
+  assert.equal(recommendationsAfter(1).length, 0)
+  assert.equal(recommendationsAfter(1).length, 0)
+  const qualified = recommendationsAfter(1)
+  assert.equal(qualified.length, 1)
+  assert.equal(qualified[0].campaignId, sent.id)
+  assert.match(qualified[0].description, /checked your campaign performance several times this week/)
+  assert.ok(Number.isFinite(Date.parse(qualified[0].createdAt)))
+
+  evaluateAnalyticsRecommendations(storage, readCampaigns(storage), readEvents(storage))
+  assert.equal(readRecommendations(storage).length, 1)
+  assert.equal(JSON.parse(storage.getItem(RECOMMENDATION_STORAGE_KEY)).length, 1)
+})
+
+test('report views after the seven-day window do not create an Analytics recommendation', () => {
+  const storage = new MemoryStorage()
+  const sentAt = '2026-10-01T12:00:00.000Z'
+  const sent = { ...campaign, sentAt }
+  const lateViews = [
+    '2026-10-08T12:00:01.000Z',
+    '2026-10-08T12:01:00.000Z',
+    '2026-10-08T12:02:00.000Z',
+  ].map((timestamp, index) => ({
+    id: `evt-late-${index}`,
+    eventName: 'campaign.performance_report_viewed',
+    campaignId: sent.id,
+    description: 'Viewed campaign report.',
+    timestamp,
+    idempotencyKey: `view-late-${index}`,
+  }))
+
+  assert.equal(evaluateAnalyticsRecommendations(storage, [sent], lateViews).length, 0)
+  assert.deepEqual(readRecommendations(storage), [])
 })

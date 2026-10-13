@@ -1,12 +1,13 @@
 import { useRef, useState, type FormEvent } from 'react'
 import {
+  type AnalyticsRecommendation,
   type Campaign,
   type CampaignEventName,
   createId,
+  evaluateAnalyticsRecommendations,
   readCampaigns,
   readEvents,
   saveCampaigns,
-  shouldRecommendAnalytics,
   trackCampaignAction,
 } from './campaignStore'
 
@@ -97,11 +98,14 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
   const [section, setSection] = useState<Section>('Dashboard')
   const [campaigns, setCampaigns] = useState<Campaign[]>(() => readCampaigns(window.localStorage))
   const [events, setEvents] = useState(() => readEvents(window.localStorage))
+  const [recommendations, setRecommendations] = useState(() => evaluateAnalyticsRecommendations(window.localStorage, readCampaigns(window.localStorage), readEvents(window.localStorage)))
   const sentCampaignIds = useRef(new Set(campaigns.filter((campaign) => campaign.status === 'sent').map((campaign) => campaign.id)))
-  const analyticsRecommended = shouldRecommendAnalytics(campaigns, events)
+  const analyticsRecommended = recommendations.length > 0
 
   function trackAction(eventName: CampaignEventName, campaign: Campaign, actionToken?: string) {
-    setEvents(trackCampaignAction(window.localStorage, eventName, campaign, actionToken).events)
+    const updatedEvents = trackCampaignAction(window.localStorage, eventName, campaign, actionToken).events
+    setEvents(updatedEvents)
+    setRecommendations(evaluateAnalyticsRecommendations(window.localStorage, readCampaigns(window.localStorage), updatedEvents))
   }
 
   function createCampaign(name: string) {
@@ -144,7 +148,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
         {section === 'Student Leads' && <StudentLeadsPage />}
         {section === 'Conversations' && <ConversationsPage />}
         {section === 'Analytics' && <PlaceholderPage section="Analytics" title="A clearer view is on the way" description="Set up Analytics to understand how your school’s outreach is performing. This preview will become your place for campaign and engagement insights." />}
-        {section === 'Recommendations' && <RecommendationsPage recommended={analyticsRecommended} onExplore={() => setSection('Analytics')} />}
+        {section === 'Recommendations' && <RecommendationsPage recommendation={recommendations[0] ?? null} onExplore={() => setSection('Analytics')} />}
         {section === 'Activated Features' && <ActivatedFeaturesPage />}
       </div>
       <footer className="workspace-footer"><span>© 2026 Cheerio</span><span>Made for your next good day <span className="heart">♥</span></span></footer>
@@ -160,7 +164,7 @@ function DashboardHome({ campaigns, events, recommended, onNavigate }: { campaig
     <div className="summary-grid"><SummaryCard label="Campaigns created" value={String(campaigns.length)} detail={sent.length + ' sent'} icon="◫" /><SummaryCard label="Families reached" value={familiesReached.toLocaleString()} detail="Across sent campaigns" icon="♙" /><SummaryCard label="Recent activity" value={String(events.length)} detail="Campaign actions tracked" icon="◷" /></div>
     <div className="home-columns">
       <section className="home-panel"><div className="section-heading"><div><h2>Recent activity</h2><p>Your latest campaign actions</p></div><button className="text-action" onClick={() => onNavigate('Campaigns')}>View campaigns →</button></div>{events.length ? <ol className="activity-list">{events.slice(0, 5).map((item) => <li key={item.id}><span className="activity-dot" /><div><p>{item.description}</p><time dateTime={item.timestamp}>{formatDateTime(item.timestamp)}</time></div></li>)}</ol> : <div className="home-empty"><span>◷</span><p>Your campaign activity will appear here as you get started.</p></div>}</section>
-      <section className="home-panel recommendation-home"><div className="section-heading"><div><h2>Recommendations</h2><p>Practical next steps for your workspace</p></div><span className="recommendation-sparkle">✧</span></div>{recommended ? <div className="recommendation-card"><span className="recommendation-icon">▥</span><div><span className="recommendation-tag">READY TO EXPLORE</span><h3>Set up Analytics</h3><p>Your team is actively reviewing campaign results. Analytics can help you spot what’s working.</p><button className="text-action" onClick={() => onNavigate('Recommendations')}>Explore recommendation →</button></div></div> : <div className="recommendation-empty"><span className="recommendation-icon">✧</span><div><strong>Recommendations will appear as you work</strong><p>Send a campaign and review its report to discover helpful next steps.</p></div></div>}</section>
+      <section className="home-panel recommendation-home"><div className="section-heading"><div><h2>Recommendations</h2><p>Practical next steps for your workspace</p></div><span className="recommendation-sparkle">✧</span></div>{recommended ? <div className="recommendation-card"><span className="recommendation-icon">▥</span><div><span className="recommendation-tag">READY TO EXPLORE</span><h3>Set up Analytics</h3><p>You’ve checked your campaign performance several times this week. Analytics can help you understand your results and spot trends.</p><button className="text-action" onClick={() => onNavigate('Recommendations')}>Explore recommendation →</button></div></div> : <div className="recommendation-empty"><span className="recommendation-icon">✧</span><div><strong>Recommendations will appear as you work</strong><p>Send a campaign and review its report to discover helpful next steps.</p></div></div>}</section>
     </div>
   </>
 }
@@ -235,8 +239,8 @@ function PlaceholderPage({ section, title, description }: { section: string; tit
   return <><PageHeader eyebrow={'BRIGHTPATH ACADEMY · ' + section.toUpperCase()} title={section} description={description} /><section className="placeholder-card"><span className="placeholder-icon">{section === 'Analytics' ? '▥' : '✧'}</span><h2>{title}</h2><p>This section is a preview for your BrightPath workspace. Your existing campaign workflow is ready to use while this area takes shape.</p><span className="coming-soon">COMING SOON</span></section></>
 }
 
-function RecommendationsPage({ recommended, onExplore }: { recommended: boolean; onExplore: () => void }) {
-  return <><PageHeader eyebrow="BRIGHTPATH ACADEMY" title="Recommendations" description="Next steps based on how your team is using Cheerio." />{recommended ? <section className="recommendation-detail"><div className="recommendation-detail-icon">▥</div><div className="recommendation-detail-copy"><span className="recommendation-tag">BASED ON YOUR CAMPAIGN ACTIVITY</span><h2>Set up Analytics</h2><p>You’ve sent a campaign and reviewed its performance report three times within seven days. Analytics can help your team see trends across future outreach.</p><button className="primary-action" onClick={onExplore}>Explore <span>→</span></button></div></section> : <section className="placeholder-card recommendation-none"><span className="placeholder-icon">✧</span><h2>No recommendations yet</h2><p>Keep using campaigns and their reports. Helpful next steps will appear here when your activity points to them.</p></section>}</>
+function RecommendationsPage({ recommendation, onExplore }: { recommendation: AnalyticsRecommendation | null; onExplore: () => void }) {
+  return <><PageHeader eyebrow="BRIGHTPATH ACADEMY" title="Recommendations" description="Next steps based on how your team is using Cheerio." />{recommendation ? <section className="recommendation-detail"><div className="recommendation-detail-icon">▥</div><div className="recommendation-detail-copy"><span className="recommendation-tag">BASED ON YOUR CAMPAIGN ACTIVITY</span><h2>Set up Analytics</h2><p>{recommendation.description}</p><button className="primary-action" onClick={onExplore}>Explore <span>→</span></button></div></section> : <section className="placeholder-card recommendation-none"><span className="placeholder-icon">✧</span><h2>No recommendations yet</h2><p>Keep using campaigns and their reports. Helpful next steps will appear here when your activity points to them.</p></section>}</>
 }
 
 function ActivatedFeaturesPage() {
