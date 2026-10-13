@@ -13,6 +13,8 @@ export type Campaign = {
   status: CampaignStatus
   createdAt: string
   sentAt?: string
+  type?: string
+  channel?: string
 }
 
 export type CampaignEventName =

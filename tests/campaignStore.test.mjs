@@ -17,6 +17,7 @@ import {
   trackCampaignAction,
   shouldRecommendAnalytics,
 } from '../src/campaignStore.ts'
+import { pathForSection, sectionForPath, sections } from '../src/navigation.ts'
 
 class MemoryStorage {
   values = new Map()
@@ -78,6 +79,14 @@ test('demo login session survives refresh and logout clears it', () => {
   assert.equal(readDemoSession(storage), true)
   saveDemoSession(storage, false)
   assert.equal(readDemoSession(storage), false)
+})
+
+test('sidebar sections have stable individual URLs and resolve on refresh or history navigation', () => {
+  const expectedPaths = ['/dashboard', '/campaigns', '/student-leads', '/conversations', '/analytics', '/recommendations', '/activated-features']
+  assert.deepEqual(sections.map(pathForSection), expectedPaths)
+  assert.deepEqual(expectedPaths.map(sectionForPath), sections)
+  assert.equal(sectionForPath('/campaigns/'), 'Campaigns')
+  assert.equal(sectionForPath('/not-a-section'), null)
 })
 
 test('campaign drafts and sent status survive reloads', () => {
