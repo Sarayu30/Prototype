@@ -88,9 +88,6 @@ function Login({ onLogin }: { onLogin: () => void }) {
             {error && <p className="form-error" role="alert">{error}</p>}
             <button className="login-button" type="submit">Log in <span aria-hidden="true">→</span></button>
           </form>
-          <div className="demo-note">
-            <span className="demo-icon" aria-hidden="true">✦</span>
-          </div>
           <p className="privacy-note"><span aria-hidden="true">▣</span> Your information stays private and secure.</p>
         </div>
       </section>
