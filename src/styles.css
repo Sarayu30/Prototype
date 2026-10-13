@@ -192,6 +192,8 @@ button, input { font: inherit; }
 .home-empty > span { color: #947bd0; font-size: 20px; }
 .home-empty p { max-width: 260px; font-size: 10px; line-height: 1.5; }
 .recommendation-home { background: linear-gradient(140deg, #fff 45%, #faf8ff); }
+.home-columns .recommendation-home { order: 1; }
+.home-columns .recent-activity-home { order: 2; }
 .recommendation-sparkle { color: #9b82d8; font-size: 18px; }
 .recommendation-card { display: flex; gap: 12px; padding: 15px 12px; border: 1px solid #f0ebfa; border-radius: 10px; background: #fcfaff; }
 .recommendation-icon { display: grid; place-items: center; flex: 0 0 33px; width: 33px; height: 33px; border-radius: 10px; background: #eee9fa; color: #7658c9; font-size: 15px; }
