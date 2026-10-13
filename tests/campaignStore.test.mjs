@@ -193,7 +193,7 @@ test('automatically persists one recommendation at three report views, but not o
   const qualified = recommendationsAfter(1)
   assert.equal(qualified.length, 1)
   assert.equal(qualified[0].campaignId, sent.id)
-  assert.match(qualified[0].description, /checked this campaign's performance several times/)
+  assert.equal(qualified[0].description, "You've checked your results several times. Discover Analytics to spot trends more easily.")
   assert.ok(Number.isFinite(Date.parse(qualified[0].createdAt)))
 
   evaluateAnalyticsRecommendations(storage, readCampaigns(storage), readEvents(storage))

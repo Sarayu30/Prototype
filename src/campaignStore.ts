@@ -2,6 +2,7 @@ export const EVENT_STORAGE_KEY = 'cheerio:activity-events'
 export const CAMPAIGN_STORAGE_KEY = 'cheerio:campaigns'
 export const RECOMMENDATION_STORAGE_KEY = 'cheerio:recommendations'
 export const DEMO_SESSION_STORAGE_KEY = 'cheerio:demo-session'
+const ANALYTICS_RECOMMENDATION_DESCRIPTION = "You've checked your results several times. Discover Analytics to spot trends more easily."
 
 export type CampaignStatus = 'draft' | 'sent'
 
@@ -135,20 +136,28 @@ export function evaluateAnalyticsRecommendations(
   campaigns: Campaign[],
   events: TrackedEvent[],
 ): AnalyticsRecommendation[] {
-  const recommendations = readRecommendations(storage)
+  const savedRecommendations = readRecommendations(storage)
+  const recommendations = savedRecommendations.map((recommendation) => ({
+    ...recommendation,
+    description: ANALYTICS_RECOMMENDATION_DESCRIPTION,
+  }))
+  const copyChanged = recommendations.some((recommendation, index) => recommendation.description !== savedRecommendations[index].description)
   const recommendedCampaignIds = new Set(recommendations.map((recommendation) => recommendation.campaignId))
   const qualifyingCampaigns = campaigns.filter((campaign) =>
     !recommendedCampaignIds.has(campaign.id) && shouldRecommendAnalytics([campaign], events),
   )
 
-  if (qualifyingCampaigns.length === 0) return recommendations
+  if (qualifyingCampaigns.length === 0) {
+    if (copyChanged) storage.setItem(RECOMMENDATION_STORAGE_KEY, JSON.stringify(recommendations))
+    return recommendations
+  }
 
   const newRecommendations = qualifyingCampaigns.map((campaign): AnalyticsRecommendation => ({
     id: createId('rec'),
     type: 'analytics',
     campaignId: campaign.id,
     campaignName: campaign.name,
-    description: "You've checked this campaign's performance several times. Discover Analytics to track results and spot trends.",
+    description: ANALYTICS_RECOMMENDATION_DESCRIPTION,
     createdAt: new Date().toISOString(),
   }))
   const updated = [...newRecommendations, ...recommendations]
