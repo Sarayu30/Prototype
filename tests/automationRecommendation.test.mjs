@@ -19,10 +19,10 @@ class MemoryStorage {
   setItem(key, value) { this.values.set(key, String(value)) }
 }
 
-function sentEvents(count) {
+function createdEvents(count) {
   return Array.from({ length: count }, (_, index) => ({
     id: `event-${index}`,
-    eventName: 'campaign.sent',
+    eventName: 'campaign.created',
     campaignId: `campaign-${index}`,
     description: `Sent campaign ${index}`,
     timestamp: new Date(Date.UTC(2026, 9, 13, 10, index)).toISOString(),
@@ -30,23 +30,23 @@ function sentEvents(count) {
   }))
 }
 
-test('Automations qualifies only after three unique successful campaign sends and persists the count', () => {
+test('Automations qualifies after three distinct created campaigns and persists the count', () => {
   const storage = new MemoryStorage()
   assert.equal(hasAutomationRecommendation(evaluateAutomationRecommendation(storage, [])), false)
-  assert.equal(hasAutomationRecommendation(evaluateAutomationRecommendation(storage, sentEvents(2))), false)
+  assert.equal(hasAutomationRecommendation(evaluateAutomationRecommendation(storage, createdEvents(2))), false)
 
-  const qualified = evaluateAutomationRecommendation(storage, sentEvents(3))
+  const qualified = evaluateAutomationRecommendation(storage, createdEvents(3))
   assert.equal(hasAutomationRecommendation(qualified), true)
-  assert.equal(qualified.successfulSendCount, 3)
-  assert.equal(readAutomationRecommendation(storage).successfulSendCount, 3)
+  assert.equal(qualified.createdCampaignCount, 3)
+  assert.equal(readAutomationRecommendation(storage).createdCampaignCount, 3)
 
-  // Duplicate delivery of the same send event must not add another successful campaign.
-  assert.equal(evaluateAutomationRecommendation(storage, [...sentEvents(3), sentEvents(3)[0]]).successfulSendCount, 3)
+  // Duplicate delivery of the same creation event must not add another campaign.
+  assert.equal(evaluateAutomationRecommendation(storage, [...createdEvents(3), createdEvents(3)[0]]).createdCampaignCount, 3)
 })
 
 test('Not now dismissal persists while the recommendation remains available to Recommendations', () => {
   const storage = new MemoryStorage()
-  evaluateAutomationRecommendation(storage, sentEvents(3))
+  evaluateAutomationRecommendation(storage, createdEvents(3))
   const dismissed = dismissAutomationRecommendation(storage)
   assert.ok(dismissed.dismissedAt)
   assert.equal(hasAutomationRecommendation(readAutomationRecommendation(storage)), true)
