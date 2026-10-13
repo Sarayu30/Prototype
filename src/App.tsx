@@ -4,10 +4,13 @@ import {
   type Campaign,
   type CampaignEventName,
   createId,
+  dismissAnalyticsRecommendation,
   evaluateAnalyticsRecommendations,
+  readDemoSession,
   readCampaigns,
   readEvents,
   saveCampaigns,
+  saveDemoSession,
   trackCampaignAction,
 } from './campaignStore'
 
@@ -100,7 +103,8 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
   const [events, setEvents] = useState(() => readEvents(window.localStorage))
   const [recommendations, setRecommendations] = useState(() => evaluateAnalyticsRecommendations(window.localStorage, readCampaigns(window.localStorage), readEvents(window.localStorage)))
   const sentCampaignIds = useRef(new Set(campaigns.filter((campaign) => campaign.status === 'sent').map((campaign) => campaign.id)))
-  const analyticsRecommended = recommendations.length > 0
+  const activeRecommendation = recommendations.find((recommendation) => !recommendation.dismissedAt) ?? null
+  const analyticsRecommended = activeRecommendation !== null
 
   function trackAction(eventName: CampaignEventName, campaign: Campaign, actionToken?: string) {
     const updatedEvents = trackCampaignAction(window.localStorage, eventName, campaign, actionToken).events
@@ -132,6 +136,15 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
     trackAction('campaign.performance_report_viewed', campaign, createId('view'))
   }
 
+  function dismissRecommendation(recommendationId: string) {
+    setRecommendations(dismissAnalyticsRecommendation(window.localStorage, recommendationId))
+  }
+
+  function exploreRecommendation(recommendationId: string) {
+    dismissRecommendation(recommendationId)
+    setSection('Analytics')
+  }
+
   return <main className="workspace-shell">
     <aside className="workspace-sidebar">
       <div className="sidebar-brand"><Brand /></div>
@@ -143,12 +156,13 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
     <div className="workspace-main">
       <header className="workspace-topbar"><div><span className="topbar-context">BrightPath Academy</span><span className="topbar-divider">/</span><strong>{section}</strong></div><button className="logout-button" onClick={onLogout}>Log out</button></header>
       <div className="workspace-page">
-        {section === 'Dashboard' && <DashboardHome campaigns={campaigns} events={events} recommended={analyticsRecommended} onNavigate={setSection} />}
+        {activeRecommendation && section !== 'Recommendations' && <RecommendationBanner recommendation={activeRecommendation} onExplore={() => exploreRecommendation(activeRecommendation.id)} onDismiss={() => dismissRecommendation(activeRecommendation.id)} />}
+        {section === 'Dashboard' && <DashboardHome campaigns={campaigns} events={events} recommendation={activeRecommendation} onNavigate={setSection} onExploreRecommendation={() => activeRecommendation && exploreRecommendation(activeRecommendation.id)} onDismissRecommendation={() => activeRecommendation && dismissRecommendation(activeRecommendation.id)} />}
         {section === 'Campaigns' && <CampaignsPage campaigns={campaigns} events={events} onCreate={createCampaign} onSend={sendCampaign} onViewReport={viewReport} />}
         {section === 'Student Leads' && <StudentLeadsPage />}
         {section === 'Conversations' && <ConversationsPage />}
         {section === 'Analytics' && <PlaceholderPage section="Analytics" title="A clearer view is on the way" description="Set up Analytics to understand how your school’s outreach is performing. This preview will become your place for campaign and engagement insights." />}
-        {section === 'Recommendations' && <RecommendationsPage recommendation={recommendations[0] ?? null} onExplore={() => setSection('Analytics')} />}
+        {section === 'Recommendations' && <RecommendationsPage recommendation={recommendations[0] ?? null} onExplore={() => { const recommendation = recommendations[0]; if (recommendation) exploreRecommendation(recommendation.id) }} />}
         {section === 'Activated Features' && <ActivatedFeaturesPage />}
       </div>
       <footer className="workspace-footer"><span>© 2026 Cheerio</span><span>Made for your next good day <span className="heart">♥</span></span></footer>
@@ -156,7 +170,11 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
   </main>
 }
 
-function DashboardHome({ campaigns, events, recommended, onNavigate }: { campaigns: Campaign[]; events: ReturnType<typeof readEvents>; recommended: boolean; onNavigate: (section: Section) => void }) {
+function RecommendationBanner({ recommendation, onExplore, onDismiss }: { recommendation: AnalyticsRecommendation; onExplore: () => void; onDismiss: () => void }) {
+  return <aside className="recommendation-banner" aria-label="Analytics recommendation"><span className="recommendation-icon" aria-hidden="true">▥</span><div className="recommendation-banner-copy"><strong>Discover Analytics</strong><p>{recommendation.description}</p></div><div className="recommendation-banner-actions"><button className="secondary-action" onClick={onExplore}>Explore</button><button className="text-action" onClick={onDismiss}>Not now</button></div></aside>
+}
+
+function DashboardHome({ campaigns, events, recommendation, onNavigate, onExploreRecommendation, onDismissRecommendation }: { campaigns: Campaign[]; events: ReturnType<typeof readEvents>; recommendation: AnalyticsRecommendation | null; onNavigate: (section: Section) => void; onExploreRecommendation: () => void; onDismissRecommendation: () => void }) {
   const sent = campaigns.filter((campaign) => campaign.status === 'sent')
   const familiesReached = sent.reduce((sum, campaign) => sum + campaign.audienceSize, 0)
   return <>
@@ -164,7 +182,7 @@ function DashboardHome({ campaigns, events, recommended, onNavigate }: { campaig
     <div className="summary-grid"><SummaryCard label="Campaigns created" value={String(campaigns.length)} detail={sent.length + ' sent'} icon="◫" /><SummaryCard label="Families reached" value={familiesReached.toLocaleString()} detail="Across sent campaigns" icon="♙" /><SummaryCard label="Recent activity" value={String(events.length)} detail="Campaign actions tracked" icon="◷" /></div>
     <div className="home-columns">
       <section className="home-panel"><div className="section-heading"><div><h2>Recent activity</h2><p>Your latest campaign actions</p></div><button className="text-action" onClick={() => onNavigate('Campaigns')}>View campaigns →</button></div>{events.length ? <ol className="activity-list">{events.slice(0, 5).map((item) => <li key={item.id}><span className="activity-dot" /><div><p>{item.description}</p><time dateTime={item.timestamp}>{formatDateTime(item.timestamp)}</time></div></li>)}</ol> : <div className="home-empty"><span>◷</span><p>Your campaign activity will appear here as you get started.</p></div>}</section>
-      <section className="home-panel recommendation-home"><div className="section-heading"><div><h2>Recommendations</h2><p>Practical next steps for your workspace</p></div><span className="recommendation-sparkle">✧</span></div>{recommended ? <div className="recommendation-card"><span className="recommendation-icon">▥</span><div><span className="recommendation-tag">READY TO EXPLORE</span><h3>Set up Analytics</h3><p>You’ve checked your campaign performance several times this week. Analytics can help you understand your results and spot trends.</p><button className="text-action" onClick={() => onNavigate('Recommendations')}>Explore recommendation →</button></div></div> : <div className="recommendation-empty"><span className="recommendation-icon">✧</span><div><strong>Recommendations will appear as you work</strong><p>Send a campaign and review its report to discover helpful next steps.</p></div></div>}</section>
+      <section className="home-panel recommendation-home"><div className="section-heading"><div><h2>Recommendations</h2><p>Practical next steps for your workspace</p></div><span className="recommendation-sparkle">✧</span></div>{recommendation ? <div className="recommendation-card"><span className="recommendation-icon">▥</span><div><span className="recommendation-tag">READY TO EXPLORE</span><h3>Set up Analytics</h3><p>{recommendation.description}</p><div className="recommendation-banner-actions"><button className="secondary-action" onClick={onExploreRecommendation}>Explore</button><button className="text-action" onClick={onDismissRecommendation}>Not now</button></div></div></div> : <div className="recommendation-empty"><span className="recommendation-icon">✧</span><div><strong>Recommendations will appear as you work</strong><p>Send a campaign and review its report to discover helpful next steps.</p></div></div>}</section>
     </div>
   </>
 }
@@ -196,7 +214,6 @@ function CampaignsPage({ campaigns, events, onCreate, onSend, onViewReport }: { 
     setIsCreating(true)
   }
   function openReport(campaign: Campaign) {
-    if (reportId === campaign.id) return
     setReportId(campaign.id)
     onViewReport(campaign)
   }
@@ -265,6 +282,14 @@ function formatToday() {
 }
 
 export default function App() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false)
-  return isLoggedIn ? <Dashboard onLogout={() => setIsLoggedIn(false)} /> : <Login onLogin={() => setIsLoggedIn(true)} />
+  const [isLoggedIn, setIsLoggedIn] = useState(() => readDemoSession(window.localStorage))
+  function handleLogin() {
+    saveDemoSession(window.localStorage, true)
+    setIsLoggedIn(true)
+  }
+  function handleLogout() {
+    saveDemoSession(window.localStorage, false)
+    setIsLoggedIn(false)
+  }
+  return isLoggedIn ? <Dashboard onLogout={handleLogout} /> : <Login onLogin={handleLogin} />
 }

@@ -2,14 +2,18 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   CAMPAIGN_STORAGE_KEY,
+  DEMO_SESSION_STORAGE_KEY,
   EVENT_STORAGE_KEY,
   RECOMMENDATION_STORAGE_KEY,
   createId,
+  dismissAnalyticsRecommendation,
   evaluateAnalyticsRecommendations,
   readCampaigns,
+  readDemoSession,
   readEvents,
   readRecommendations,
   saveCampaigns,
+  saveDemoSession,
   trackCampaignAction,
   shouldRecommendAnalytics,
 } from '../src/campaignStore.ts'
@@ -64,6 +68,16 @@ test('events survive reloads and malformed saved data is handled safely', () => 
 
   storage.setItem(EVENT_STORAGE_KEY, '{not json')
   assert.deepEqual(readEvents(storage), [])
+})
+
+test('demo login session survives refresh and logout clears it', () => {
+  const storage = new MemoryStorage()
+  assert.equal(readDemoSession(storage), false)
+  saveDemoSession(storage, true)
+  assert.equal(storage.getItem(DEMO_SESSION_STORAGE_KEY), 'active')
+  assert.equal(readDemoSession(storage), true)
+  saveDemoSession(storage, false)
+  assert.equal(readDemoSession(storage), false)
 })
 
 test('campaign drafts and sent status survive reloads', () => {
@@ -122,11 +136,17 @@ test('separate report openings are tracked once each and repeated handling is de
   const first = trackCampaignAction(storage, 'campaign.performance_report_viewed', campaign, 'open-one')
   const repeatedHandler = trackCampaignAction(storage, 'campaign.performance_report_viewed', campaign, 'open-one')
   const second = trackCampaignAction(storage, 'campaign.performance_report_viewed', campaign, 'open-two')
+  const third = trackCampaignAction(storage, 'campaign.performance_report_viewed', campaign, 'open-three')
 
   assert.equal(first.recorded, true)
   assert.equal(repeatedHandler.recorded, false)
   assert.equal(second.recorded, true)
-  assert.equal(readEvents(storage).length, 2)
+  assert.equal(third.recorded, true)
+  const events = readEvents(storage)
+  assert.equal(events.length, 3)
+  assert.equal(new Set(events.map((event) => event.id)).size, 3)
+  assert.ok(events.every((event) => Number.isFinite(Date.parse(event.timestamp))))
+  assert.ok(events.every((event, index) => index === 0 || Date.parse(events[index - 1].timestamp) >= Date.parse(event.timestamp)))
 })
 
 test('recommends Analytics after three report views within seven days of sending', () => {
@@ -173,7 +193,7 @@ test('automatically persists one recommendation at three report views, but not o
   const qualified = recommendationsAfter(1)
   assert.equal(qualified.length, 1)
   assert.equal(qualified[0].campaignId, sent.id)
-  assert.match(qualified[0].description, /checked your campaign performance several times this week/)
+  assert.match(qualified[0].description, /checked this campaign's performance several times/)
   assert.ok(Number.isFinite(Date.parse(qualified[0].createdAt)))
 
   evaluateAnalyticsRecommendations(storage, readCampaigns(storage), readEvents(storage))
@@ -200,4 +220,22 @@ test('report views after the seven-day window do not create an Analytics recomme
 
   assert.equal(evaluateAnalyticsRecommendations(storage, [sent], lateViews).length, 0)
   assert.deepEqual(readRecommendations(storage), [])
+})
+
+test('Not now persists dismissal without removing the recommendation from its page data', () => {
+  const storage = new MemoryStorage()
+  const sent = { ...campaign, sentAt: new Date().toISOString() }
+  saveCampaigns(storage, [sent])
+  for (let index = 0; index < 3; index += 1) {
+    const action = trackCampaignAction(storage, 'campaign.performance_report_viewed', sent, createId('view'))
+    evaluateAnalyticsRecommendations(storage, [sent], action.events)
+  }
+
+  const created = readRecommendations(storage)
+  const dismissed = dismissAnalyticsRecommendation(storage, created[0].id)
+  assert.equal(dismissed.length, 1)
+  assert.ok(Number.isFinite(Date.parse(dismissed[0].dismissedAt)))
+  assert.equal(readRecommendations(storage)[0].id, created[0].id)
+  assert.equal(evaluateAnalyticsRecommendations(storage, [sent], readEvents(storage)).length, 1)
+  assert.ok(readRecommendations(storage)[0].dismissedAt)
 })

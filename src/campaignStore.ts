@@ -1,6 +1,7 @@
 export const EVENT_STORAGE_KEY = 'cheerio:activity-events'
 export const CAMPAIGN_STORAGE_KEY = 'cheerio:campaigns'
 export const RECOMMENDATION_STORAGE_KEY = 'cheerio:recommendations'
+export const DEMO_SESSION_STORAGE_KEY = 'cheerio:demo-session'
 
 export type CampaignStatus = 'draft' | 'sent'
 
@@ -34,9 +35,18 @@ export type AnalyticsRecommendation = {
   campaignName: string
   description: string
   createdAt: string
+  dismissedAt?: string
 }
 
 export type StorageLike = Pick<Storage, 'getItem' | 'setItem'>
+
+export function readDemoSession(storage: StorageLike): boolean {
+  return storage.getItem(DEMO_SESSION_STORAGE_KEY) === 'active'
+}
+
+export function saveDemoSession(storage: StorageLike, isActive: boolean): void {
+  storage.setItem(DEMO_SESSION_STORAGE_KEY, isActive ? 'active' : 'inactive')
+}
 
 type NewTrackedEvent = Omit<TrackedEvent, 'id' | 'timestamp'> & { timestamp?: string }
 
@@ -112,7 +122,8 @@ export function readRecommendations(storage: StorageLike): AnalyticsRecommendati
       typeof recommendation?.campaignId === 'string' &&
       typeof recommendation?.campaignName === 'string' &&
       typeof recommendation?.description === 'string' &&
-      typeof recommendation?.createdAt === 'string',
+      typeof recommendation?.createdAt === 'string' &&
+      (recommendation?.dismissedAt === undefined || typeof recommendation.dismissedAt === 'string'),
     )
   } catch {
     return []
@@ -137,10 +148,20 @@ export function evaluateAnalyticsRecommendations(
     type: 'analytics',
     campaignId: campaign.id,
     campaignName: campaign.name,
-    description: "You've checked your campaign performance several times this week. Analytics can help you understand your results and spot trends.",
+    description: "You've checked this campaign's performance several times. Discover Analytics to track results and spot trends.",
     createdAt: new Date().toISOString(),
   }))
   const updated = [...newRecommendations, ...recommendations]
+  storage.setItem(RECOMMENDATION_STORAGE_KEY, JSON.stringify(updated))
+  return updated
+}
+
+export function dismissAnalyticsRecommendation(storage: StorageLike, recommendationId: string): AnalyticsRecommendation[] {
+  const recommendations = readRecommendations(storage)
+  const updated = recommendations.map((recommendation) => recommendation.id === recommendationId
+    ? { ...recommendation, dismissedAt: new Date().toISOString() }
+    : recommendation,
+  )
   storage.setItem(RECOMMENDATION_STORAGE_KEY, JSON.stringify(updated))
   return updated
 }
