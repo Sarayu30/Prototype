@@ -1,4 +1,4 @@
-# Cheerio Dashboard Demo
+# Cheerio Demo
 
 A clickable product-intern MVP exploring **contextual feature discovery** for Cheerio AI. The demo uses a coaching-institute scenario (Bright Path Academy) to test whether meaningful product activity can help users discover Analytics and Automations without interruptive, generic onboarding popups.
 
