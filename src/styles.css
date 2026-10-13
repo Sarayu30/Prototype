@@ -298,6 +298,22 @@ button, input { font: inherit; }
 @media (max-width: 720px) { .workspace-shell { display: block; } .workspace-sidebar { position: relative; width: 100%; height: auto; padding: 14px 16px 8px; border-right: 0; border-bottom: 1px solid #efedf4; } .sidebar-brand { padding: 0 2px 12px; } .sidebar-school, .sidebar-label, .sidebar-profile { display: none; } .sidebar-nav { display: flex; overflow-x: auto; gap: 5px; padding-bottom: 5px; scrollbar-width: thin; } .nav-item { width: auto; flex: 0 0 auto; min-height: 35px; gap: 7px; padding: 0 9px; white-space: nowrap; } .nav-icon { flex-basis: 17px; width: 17px; font-size: 14px; } .workspace-main { padding: 0 20px; } .workspace-topbar { height: 56px; flex-basis: 56px; } .workspace-page { padding-top: 26px; } .summary-grid { grid-template-columns: 1fr; gap: 9px; } .summary-card { padding: 12px; } .summary-card strong { font-size: 20px; } .feature-grid { grid-template-columns: 1fr; } }
 @media (max-width: 480px) { .page-heading { align-items: flex-start; flex-direction: column; } .page-heading h1 { font-size: 29px; } .workspace-main { padding: 0 15px; } .workspace-topbar .logout-button { padding: 7px 10px; } .workspace-footer { font-size: 8px; } .leads-table th, .leads-table td { padding-right: 9px; padding-left: 9px; } .recommendation-detail { flex-direction: column; padding: 18px; } }
 
+/* Analytics recommendation emphasis */
+.analytics-highlight-card { gap: 14px; padding: 17px; border: 1px solid #ded1f5; border-left: 4px solid #7656c7; background: #f4efff; box-shadow: 0 8px 22px #5a3ba511; }
+.analytics-highlight-card .analytics-recommendation-icon { flex-basis: 40px; width: 40px; height: 40px; border-radius: 11px; background: #e5dafb; color: #6948b7; font-size: 19px; box-shadow: inset 0 0 0 1px #d8c8f5; }
+.analytics-highlight-card h3 { margin: 1px 0 8px; color: #3f345e; font-size: 15px; line-height: 1.35; }
+.analytics-highlight-card p { margin: 7px 0 11px; color: #716783; font-size: 10px; line-height: 1.65; }
+.analytics-highlight-card .feature-status { display: inline-flex; margin: 0 0 8px; padding: 5px 8px; border: 1px solid #d9ccf2; background: #ebe3fb; color: #6346aa; font-size: 9px; }
+.analytics-highlight-card .primary-action { min-height: 36px; padding: 0 13px; box-shadow: 0 3px 9px #684bb333; }
+.campaign-recommendation-card { border-color: #ded1f5; border-left: 4px solid #7656c7; background: #f4efff; box-shadow: 0 6px 18px #5a3ba50d; }
+.campaign-recommendation-title { gap: 11px; color: #453a63; font-size: 11px; }
+.campaign-recommendation-title strong { line-height: 1.4; }
+.campaign-recommendation-icon { flex-basis: 34px; width: 34px; height: 34px; border-radius: 10px; background: #e5dafb; color: #6948b7; font-size: 17px; box-shadow: inset 0 0 0 1px #d8c8f5; }
+.analytics-resume-card { border-color: #ded1f5; border-left: 4px solid #7656c7; background: #f4efff; box-shadow: 0 8px 22px #5a3ba511; }
+.analytics-resume-card .feature-icon { background: #e5dafb; color: #6948b7; font-size: 20px; }
+.analytics-resume-card h2 { margin-bottom: 9px; color: #3f345e; }
+.analytics-resume-card .feature-status { display: inline-flex; margin-bottom: 8px; border: 1px solid #d9ccf2; background: #ebe3fb; color: #6346aa; font-size: 9px; }
+
 /* Workspace navigation and overview */
 .workspace-shell { display: flex; min-height: 100vh; padding: 0; overflow: visible; background: #faf9ff; }
 .workspace-sidebar { position: sticky; top: 0; display: flex; flex: 0 0 246px; flex-direction: column; height: 100vh; padding: 25px 15px 15px; background: #fff; border-right: 1px solid #efedf4; }
