@@ -9,12 +9,14 @@ import {
   readDemoSession,
   readCampaigns,
   readEvents,
+  saveAnalyticsRecommendationExplanation,
   saveCampaigns,
   saveDemoSession,
   trackCampaignAction,
 } from './campaignStore'
 import { pathForSection, sectionForPath, sections, type Section } from './navigation'
 import { activateAnalyticsSetup, readAnalyticsSetup, startAnalyticsSetup, updateAnalyticsSetup, type AnalyticsMetric, type AnalyticsSetup, type ReportFrequency } from './analyticsSetup'
+import { requestAnalyticsExplanation } from './analyticsExplanation'
 
 const DEMO_EMAIL = 'ravi@brightpath.edu'
 const DEMO_PASSWORD = 'cheerio123'
@@ -97,6 +99,11 @@ function Login({ onLogin }: { onLogin: () => void }) {
 
 const sectionIcons = ['⌂', '◫', '♙', '◌', '▥', '✧', '✓']
 
+function ExplanationModeLabel({ recommendation }: { recommendation: AnalyticsRecommendation }) {
+  const label = recommendation.explanationMode === 'groq' ? 'GROQ PERSONALIZED' : recommendation.explanationMode === 'fallback' ? 'AI FALLBACK MODE' : 'PREPARING EXPLANATION'
+  return <span className={'ai-explanation-label ai-explanation-' + (recommendation.explanationMode ?? 'pending')}>{label}</span>
+}
+
 function Dashboard({ section, onNavigate, onLogout }: { section: Section; onNavigate: (section: Section) => void; onLogout: () => void }) {
   const [campaigns, setCampaigns] = useState<Campaign[]>(() => readCampaigns(window.localStorage))
   const [events, setEvents] = useState(() => readEvents(window.localStorage))
@@ -104,12 +111,33 @@ function Dashboard({ section, onNavigate, onLogout }: { section: Section; onNavi
   const [analyticsSetup, setAnalyticsSetup] = useState<AnalyticsSetup | null>(() => readAnalyticsSetup(window.localStorage))
   const [analyticsSetupOpen, setAnalyticsSetupOpen] = useState(false)
   const sentCampaignIds = useRef(new Set(campaigns.filter((campaign) => campaign.status === 'sent').map((campaign) => campaign.id)))
+  const requestedExplanationIds = useRef(new Set<string>())
   const activeRecommendation = recommendations.find((recommendation) => !recommendation.dismissedAt) ?? null
   const analyticsRecommended = activeRecommendation !== null
 
   useEffect(() => {
     if (section !== 'Analytics') setAnalyticsSetupOpen(false)
   }, [section])
+
+  useEffect(() => {
+    if (!activeRecommendation || activeRecommendation.explanationMode !== 'pending' || requestedExplanationIds.current.has(activeRecommendation.id)) return
+    const campaign = campaigns.find((item) => item.id === activeRecommendation.campaignId)
+    if (!campaign?.sentAt) return
+    const sentAt = Date.parse(campaign.sentAt)
+    if (!Number.isFinite(sentAt)) return
+    const sevenDaysLater = sentAt + 7 * 24 * 60 * 60 * 1000
+    const reportViews = events.filter((event) => {
+      if (event.campaignId !== campaign.id || event.eventName !== 'campaign.performance_report_viewed') return false
+      const viewedAt = Date.parse(event.timestamp)
+      return Number.isFinite(viewedAt) && viewedAt >= sentAt && viewedAt <= sevenDaysLater
+    }).length
+    if (reportViews < 3) return
+    requestedExplanationIds.current.add(activeRecommendation.id)
+    const daysSinceSend = Math.min(7, Math.max(0, Math.floor((Date.now() - sentAt) / (24 * 60 * 60 * 1000))))
+    void requestAnalyticsExplanation({ campaignName: campaign.name, reportViews, daysSinceSend }).then((result) => {
+      setRecommendations(saveAnalyticsRecommendationExplanation(window.localStorage, activeRecommendation.id, result.description, result.explanationMode))
+    })
+  }, [activeRecommendation, campaigns, events])
 
   function trackAction(eventName: CampaignEventName, campaign: Campaign, actionToken?: string) {
     const updatedEvents = trackCampaignAction(window.localStorage, eventName, campaign, actionToken).events
@@ -203,7 +231,7 @@ function DashboardHome({ campaigns, events, recommendation, analyticsSetup, onNa
     <div className="summary-grid"><SummaryCard label="Campaigns created" value={String(campaigns.length)} detail={sent.length + ' sent'} icon="◫" /><SummaryCard label="Families reached" value={familiesReached.toLocaleString()} detail="Across sent campaigns" icon="♙" /><SummaryCard label="Recent activity" value={String(events.length)} detail="Campaign actions tracked" icon="◷" /></div>
     <div className="home-columns">
       <section className="home-panel recent-activity-home"><div className="section-heading"><div><h2>Recent activity</h2><p>Your latest campaign actions</p></div><button className="text-action" onClick={() => onNavigate('Campaigns')}>View campaigns →</button></div>{events.length ? <ol className="activity-list">{events.slice(0, 5).map((item) => <li key={item.id}><span className="activity-dot" /><div><p>{item.description}</p><time dateTime={item.timestamp}>{formatDateTime(item.timestamp)}</time></div></li>)}</ol> : <div className="home-empty"><span>◷</span><p>Your campaign activity will appear here as you get started.</p></div>}</section>
-      <section className="home-panel recommendation-home"><div className="section-heading"><div><h2>Recommendations</h2><p>{analyticsSetup?.status === 'in-progress' ? 'Analytics setup in progress' : 'Practical next steps for your workspace'}</p></div><span className="recommendation-sparkle">✧</span></div>{recommendation ? <div className="recommendation-card analytics-highlight-card"><span className="recommendation-icon analytics-recommendation-icon" aria-label="Analytics">▥</span><div><span className="recommendation-tag">READY TO EXPLORE</span><h3>Set up Analytics</h3><p>{recommendation.description}</p><div className="recommendation-banner-actions"><button className="secondary-action" onClick={onExploreRecommendation}>Explore</button><button className="text-action" onClick={onDismissRecommendation}>Not now</button></div></div></div> : analyticsSetup?.status === 'in-progress' ? <div className="recommendation-card analytics-highlight-card"><span className="recommendation-icon analytics-recommendation-icon" aria-label="Analytics">▥</span><div><h3>Resume Analytics Setup</h3><span className="feature-status feature-in-progress">Setup in progress · Step {analyticsSetup.step} of 2</span><p>Your saved metrics and report frequency are ready to continue.</p><button className="primary-action" onClick={onResumeAnalyticsSetup}>Resume Setup</button></div></div> : analyticsSetup?.status === 'activated' ? <div className="recommendation-card"><span className="recommendation-icon">✓</span><div><span className="feature-status feature-active">Activated</span><h3>Analytics is active</h3><p>Your campaign reports are set up to track the metrics you selected.</p><button className="text-action" onClick={() => onNavigate('Analytics')}>View Analytics →</button></div></div> : <div className="recommendation-empty"><span className="recommendation-icon">✧</span><div><strong>Recommendations will appear as you work</strong><p>Send a campaign and review its report to discover helpful next steps.</p></div></div>}</section>
+      <section className="home-panel recommendation-home"><div className="section-heading"><div><h2>Recommendations</h2><p>{analyticsSetup?.status === 'in-progress' ? 'Analytics setup in progress' : 'Practical next steps for your workspace'}</p></div><span className="recommendation-sparkle">✧</span></div>{recommendation ? <div className="recommendation-card analytics-highlight-card"><span className="recommendation-icon analytics-recommendation-icon" aria-label="Analytics">▥</span><div><span className="recommendation-tag">READY TO EXPLORE</span><h3>Set up Analytics</h3><ExplanationModeLabel recommendation={recommendation} /><p>{recommendation.description}</p><div className="recommendation-banner-actions"><button className="secondary-action" onClick={onExploreRecommendation}>Explore</button><button className="text-action" onClick={onDismissRecommendation}>Not now</button></div></div></div> : analyticsSetup?.status === 'in-progress' ? <div className="recommendation-card analytics-highlight-card"><span className="recommendation-icon analytics-recommendation-icon" aria-label="Analytics">▥</span><div><h3>Resume Analytics Setup</h3><span className="feature-status feature-in-progress">Setup in progress · Step {analyticsSetup.step} of 2</span><p>Your saved metrics and report frequency are ready to continue.</p><button className="primary-action" onClick={onResumeAnalyticsSetup}>Resume Setup</button></div></div> : analyticsSetup?.status === 'activated' ? <div className="recommendation-card"><span className="recommendation-icon">✓</span><div><span className="feature-status feature-active">Activated</span><h3>Analytics is active</h3><p>Your campaign reports are set up to track the metrics you selected.</p><button className="text-action" onClick={() => onNavigate('Analytics')}>View Analytics →</button></div></div> : <div className="recommendation-empty"><span className="recommendation-icon">✧</span><div><strong>Recommendations will appear as you work</strong><p>Send a campaign and review its report to discover helpful next steps.</p></div></div>}</section>
     </div>
   </>
 }
@@ -278,7 +306,7 @@ function CampaignsPage({ campaigns, events, recommendation, onCreate, onSend, on
           })}</tbody></table></div>}
         {report && <section className="report-panel" aria-live="polite" aria-labelledby="report-heading"><div className="report-title-row"><div><div className="eyebrow">CAMPAIGN REPORT</div><h2 id="report-heading">{report.name}</h2></div><button className="icon-button" aria-label="Close report" onClick={() => setReportId(null)}>×</button></div>{report.status === 'sent' ? <><p className="report-subtitle">Sent {formatDate(report.sentAt ?? report.createdAt)} · Demo audience results</p><div className="metric-grid"><Metric label="Delivered" value={String(campaignDemoMetrics(report).delivered)} detail={'of ' + report.audienceSize + ' families'} /><Metric label="Opened" value={String(campaignDemoMetrics(report).opened)} detail="68% open rate" /><Metric label="Clicked" value={String(campaignDemoMetrics(report).clicked)} detail="27% of readers" /></div></> : <div className="report-draft-note"><span>✦</span><div><strong>Your report will be ready after sending.</strong><p>Send this campaign to see delivery, opens, and clicks for your demo audience.</p></div></div>}</section>}
       </section>
-      <aside className="activity-panel">{recommendation && <section className="campaign-recommendation-card" aria-label="Analytics recommendation"><div className="campaign-recommendation-title"><span className="campaign-recommendation-icon" aria-hidden="true">▥</span><strong>A better way to track your campaigns</strong></div><p>{recommendation.description}</p><div className="campaign-recommendation-actions"><button className="secondary-action" onClick={onExploreRecommendation}>Explore</button><button className="text-action" onClick={onDismissRecommendation}>Not now</button></div></section>}<div className="section-heading"><div><h2>Recent activity</h2><p>Campaign actions, in order</p></div><span className="activity-count">{events.length}</span></div>{events.length === 0 ? <div className="activity-empty"><span>◷</span><p>Your campaign activity will appear here.</p></div> : <ol className="activity-list">{events.slice(0, 8).map((item) => <li key={item.id}><span className="activity-dot" /><div><p>{item.description}</p><time dateTime={item.timestamp}>{formatDateTime(item.timestamp)}</time></div></li>)}</ol>}</aside>
+      <aside className="activity-panel">{recommendation && <section className="campaign-recommendation-card" aria-label="Analytics recommendation"><div className="campaign-recommendation-title"><span className="campaign-recommendation-icon" aria-hidden="true">▥</span><strong>A better way to track your campaigns</strong></div><ExplanationModeLabel recommendation={recommendation} /><p>{recommendation.description}</p><div className="campaign-recommendation-actions"><button className="secondary-action" onClick={onExploreRecommendation}>Explore</button><button className="text-action" onClick={onDismissRecommendation}>Not now</button></div></section>}<div className="section-heading"><div><h2>Recent activity</h2><p>Campaign actions, in order</p></div><span className="activity-count">{events.length}</span></div>{events.length === 0 ? <div className="activity-empty"><span>◷</span><p>Your campaign activity will appear here.</p></div> : <ol className="activity-list">{events.slice(0, 8).map((item) => <li key={item.id}><span className="activity-dot" /><div><p>{item.description}</p><time dateTime={item.timestamp}>{formatDateTime(item.timestamp)}</time></div></li>)}</ol>}</aside>
     </div>
     <details className="reviewer-panel"><summary>Reviewer event log <span>Technical event names, IDs, and timestamps</span></summary>{events.length === 0 ? <p className="reviewer-empty">No events have been recorded yet.</p> : <div className="reviewer-table-wrap"><table className="reviewer-table"><thead><tr><th>Event name</th><th>Event ID</th><th>Timestamp</th></tr></thead><tbody>{events.map((item) => <tr key={item.id}><td><code>{item.eventName}</code></td><td><code>{item.id}</code></td><td><time dateTime={item.timestamp}>{formatDateTime(item.timestamp)}</time></td></tr>)}</tbody></table></div>}</details>
   </>
@@ -340,7 +368,7 @@ function AnalyticsSetupPage({ setup, isOpen, onStart, onResume, onUpdate, onActi
 }
 
 function RecommendationsPage({ recommendation, onExplore }: { recommendation: AnalyticsRecommendation | null; onExplore: () => void }) {
-  return <><PageHeader eyebrow="BRIGHTPATH ACADEMY" title="Recommendations" description="Next steps based on how your team is using Cheerio." />{recommendation ? <section className="recommendation-detail"><div className="recommendation-detail-icon">▥</div><div className="recommendation-detail-copy"><span className="recommendation-tag">BASED ON YOUR CAMPAIGN ACTIVITY</span><h2>Set up Analytics</h2><p>{recommendation.description}</p><button className="primary-action" onClick={onExplore}>Explore <span>→</span></button></div></section> : <section className="placeholder-card recommendation-none"><span className="placeholder-icon">✧</span><h2>No recommendations yet</h2><p>Keep using campaigns and their reports. Helpful next steps will appear here when your activity points to them.</p></section>}</>
+  return <><PageHeader eyebrow="BRIGHTPATH ACADEMY" title="Recommendations" description="Next steps based on how your team is using Cheerio." />{recommendation ? <section className="recommendation-detail"><div className="recommendation-detail-icon">▥</div><div className="recommendation-detail-copy"><span className="recommendation-tag">BASED ON YOUR CAMPAIGN ACTIVITY</span><h2>Set up Analytics</h2><ExplanationModeLabel recommendation={recommendation} /><p>{recommendation.description}</p><button className="primary-action" onClick={onExplore}>Explore <span>→</span></button></div></section> : <section className="placeholder-card recommendation-none"><span className="placeholder-icon">✧</span><h2>No recommendations yet</h2><p>Keep using campaigns and their reports. Helpful next steps will appear here when your activity points to them.</p></section>}</>
 }
 
 function ActivatedFeaturesPage({ analyticsSetup }: { analyticsSetup: AnalyticsSetup | null }) {

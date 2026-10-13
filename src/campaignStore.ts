@@ -2,7 +2,8 @@ export const EVENT_STORAGE_KEY = 'cheerio:activity-events'
 export const CAMPAIGN_STORAGE_KEY = 'cheerio:campaigns'
 export const RECOMMENDATION_STORAGE_KEY = 'cheerio:recommendations'
 export const DEMO_SESSION_STORAGE_KEY = 'cheerio:demo-session'
-const ANALYTICS_RECOMMENDATION_DESCRIPTION = "You've checked your results several times. Discover Analytics to spot trends more easily."
+export const ANALYTICS_RECOMMENDATION_DESCRIPTION = "You've checked your results several times. Discover Analytics to spot trends more easily."
+export type AnalyticsExplanationMode = 'pending' | 'groq' | 'fallback'
 
 export type CampaignStatus = 'draft' | 'sent'
 
@@ -37,6 +38,7 @@ export type AnalyticsRecommendation = {
   campaignId: string
   campaignName: string
   description: string
+  explanationMode?: AnalyticsExplanationMode
   createdAt: string
   dismissedAt?: string
 }
@@ -142,8 +144,9 @@ export function evaluateAnalyticsRecommendations(
   const recommendations = savedRecommendations.map((recommendation) => ({
     ...recommendation,
     description: ANALYTICS_RECOMMENDATION_DESCRIPTION,
+    explanationMode: recommendation.dismissedAt ? (recommendation.explanationMode ?? 'fallback') : (recommendation.explanationMode ?? 'pending'),
   }))
-  const copyChanged = recommendations.some((recommendation, index) => recommendation.description !== savedRecommendations[index].description)
+  const copyChanged = recommendations.some((recommendation, index) => recommendation.description !== savedRecommendations[index].description || recommendation.explanationMode !== savedRecommendations[index].explanationMode)
   const recommendedCampaignIds = new Set(recommendations.map((recommendation) => recommendation.campaignId))
   const qualifyingCampaigns = campaigns.filter((campaign) =>
     !recommendedCampaignIds.has(campaign.id) && shouldRecommendAnalytics([campaign], events),
@@ -160,9 +163,20 @@ export function evaluateAnalyticsRecommendations(
     campaignId: campaign.id,
     campaignName: campaign.name,
     description: ANALYTICS_RECOMMENDATION_DESCRIPTION,
+    explanationMode: 'pending',
     createdAt: new Date().toISOString(),
   }))
   const updated = [...newRecommendations, ...recommendations]
+  storage.setItem(RECOMMENDATION_STORAGE_KEY, JSON.stringify(updated))
+  return updated
+}
+
+export function saveAnalyticsRecommendationExplanation(storage: StorageLike, recommendationId: string, description: string, explanationMode: Exclude<AnalyticsExplanationMode, 'pending'>): AnalyticsRecommendation[] {
+  const recommendations = readRecommendations(storage)
+  const updated = recommendations.map((recommendation) => recommendation.id === recommendationId
+    ? { ...recommendation, description, explanationMode }
+    : recommendation,
+  )
   storage.setItem(RECOMMENDATION_STORAGE_KEY, JSON.stringify(updated))
   return updated
 }
