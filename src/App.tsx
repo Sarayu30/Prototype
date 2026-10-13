@@ -59,16 +59,16 @@ function Login({ onLogin }: { onLogin: () => void }) {
 
   return (
     <main className="login-shell">
-      <header className="topbar"><Brand /><span className="topbar-note">Your learning journey, together</span></header>
+      <header className="topbar"><Brand /><span className="topbar-note">Campaigns, audience, and performance—all in one place</span></header>
       <section className="login-layout" aria-labelledby="welcome-heading">
         <div className="welcome-panel">
-          <div className="eyebrow"><span className="eyebrow-dot" /> A little support goes a long way</div>
-          <h1 id="welcome-heading">Make room for<br /><span>what’s next.</span></h1>
-          <p className="welcome-copy">A calmer way to stay on top of school, build good habits, and feel good about your progress.</p>
+          <div className="eyebrow"><span className="eyebrow-dot" /> CAMPAIGNS · WHATSAPP · EMAIL · SMS</div>
+          <h1 id="welcome-heading">Make every<br /><span>campaign count.</span></h1>
+          <p className="welcome-copy">Create campaigns, connect with your audience, track results, and discover smarter ways to grow all in one place.</p>
           <div className="quote-card">
             <div className="quote-symbol" aria-hidden="true">“</div>
-            <p>Small steps still move you forward.</p>
-            <span>YOUR CHEERIO REMINDER</span>
+            <p>Create better campaigns. Understand your audience. Save time.</p>
+            <span>DISCOVER AUTOMATIONS TO SAVE TIME</span>
           </div>
           <div className="welcome-decoration decoration-one" /><div className="welcome-decoration decoration-two" />
         </div>
@@ -77,8 +77,8 @@ function Login({ onLogin }: { onLogin: () => void }) {
           <div className="form-heading">
             <div className="mobile-brand"><Brand /></div>
             <div className="eyebrow form-eyebrow">WELCOME BACK</div>
-            <h2>Let’s pick up<br />where you left off.</h2>
-            <p>Sign in to your Cheerio account to continue.</p>
+            <h2>Good to see you<br />again.</h2>
+            <p>Sign in to manage your campaigns and keep things moving.</p>
           </div>
           <form className="login-form" onSubmit={handleSubmit} noValidate>
             <label htmlFor="email">Email address</label>
@@ -90,7 +90,6 @@ function Login({ onLogin }: { onLogin: () => void }) {
           </form>
           <div className="demo-note">
             <span className="demo-icon" aria-hidden="true">✦</span>
-            <div><strong>Demo access</strong><span>{DEMO_EMAIL} · {DEMO_PASSWORD}</span></div>
           </div>
           <p className="privacy-note"><span aria-hidden="true">▣</span> Your information stays private and secure.</p>
         </div>
