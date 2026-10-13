@@ -9,14 +9,16 @@ import {
   readDemoSession,
   readCampaigns,
   readEvents,
+  saveAnalyticsRecommendationDiagnostics,
   saveAnalyticsRecommendationExplanation,
   saveCampaigns,
   saveDemoSession,
+  shouldRecommendAnalytics,
   trackCampaignAction,
 } from './campaignStore'
 import { pathForSection, sectionForPath, sections, type Section } from './navigation'
 import { activateAnalyticsSetup, readAnalyticsSetup, startAnalyticsSetup, updateAnalyticsSetup, type AnalyticsMetric, type AnalyticsSetup, type ReportFrequency } from './analyticsSetup'
-import { requestAnalyticsExplanation } from './analyticsExplanation'
+import { createPendingAnalyticsDiagnostics, requestAnalyticsExplanation } from './analyticsExplanation'
 
 const DEMO_EMAIL = 'ravi@brightpath.edu'
 const DEMO_PASSWORD = 'cheerio123'
@@ -104,6 +106,23 @@ function ExplanationModeLabel({ recommendation }: { recommendation: AnalyticsRec
   return <span className={'ai-explanation-label ai-explanation-' + (recommendation.explanationMode ?? 'pending')}>{label}</span>
 }
 
+function ReviewerAiDiagnostics({ recommendation }: { recommendation: AnalyticsRecommendation | null }) {
+  const diagnostics = recommendation?.aiDiagnostics
+  return <section className="reviewer-ai-diagnostics" aria-label="Groq explanation diagnostics">
+    <h3>Groq explanation diagnostics</h3>
+    {!recommendation ? <p>No Analytics recommendation has qualified, so no Groq request was made.</p> : !diagnostics ? <p>Recommendation qualified. Waiting for the server request to start.</p> : <dl>
+      <div><dt>Status</dt><dd>{diagnostics.status}</dd></div>
+      <div><dt>Key loaded on server</dt><dd>{diagnostics.keyConfigured === null ? 'Unknown — app API was unreachable' : diagnostics.keyConfigured ? 'Yes (value hidden)' : 'No'}</dd></div>
+      <div><dt>Model</dt><dd>{diagnostics.model ?? 'Not reported by server'}</dd></div>
+      <div><dt>HTTP status</dt><dd>{diagnostics.httpStatus ?? '—'}</dd></div>
+      <div><dt>Error code</dt><dd>{diagnostics.errorCode ?? '—'}</dd></div>
+      <div><dt>Attempted</dt><dd>{formatDateTime(diagnostics.attemptedAt)}</dd></div>
+      {diagnostics.completedAt && <div><dt>Completed</dt><dd>{formatDateTime(diagnostics.completedAt)}</dd></div>}
+      <div className="reviewer-ai-message"><dt>Details</dt><dd>{diagnostics.message}</dd></div>
+    </dl>}
+  </section>
+}
+
 function Dashboard({ section, onNavigate, onLogout }: { section: Section; onNavigate: (section: Section) => void; onLogout: () => void }) {
   const [campaigns, setCampaigns] = useState<Campaign[]>(() => readCampaigns(window.localStorage))
   const [events, setEvents] = useState(() => readEvents(window.localStorage))
@@ -120,22 +139,25 @@ function Dashboard({ section, onNavigate, onLogout }: { section: Section; onNavi
   }, [section])
 
   useEffect(() => {
-    if (!activeRecommendation || activeRecommendation.explanationMode !== 'pending' || requestedExplanationIds.current.has(activeRecommendation.id)) return
+    if (!activeRecommendation || (activeRecommendation.explanationMode !== 'pending' && activeRecommendation.explanationMode !== 'fallback') || requestedExplanationIds.current.has(activeRecommendation.id)) return
     const campaign = campaigns.find((item) => item.id === activeRecommendation.campaignId)
     if (!campaign?.sentAt) return
     const sentAt = Date.parse(campaign.sentAt)
     if (!Number.isFinite(sentAt)) return
     const sevenDaysLater = sentAt + 7 * 24 * 60 * 60 * 1000
-    const reportViews = events.filter((event) => {
+    const reportViewTimestamps = events.filter((event) => {
       if (event.campaignId !== campaign.id || event.eventName !== 'campaign.performance_report_viewed') return false
       const viewedAt = Date.parse(event.timestamp)
       return Number.isFinite(viewedAt) && viewedAt >= sentAt && viewedAt <= sevenDaysLater
-    }).length
-    if (reportViews < 3) return
+    }).map((event) => event.timestamp)
+    const reportViews = reportViewTimestamps.length
+    if (reportViews < 3 || !shouldRecommendAnalytics([campaign], events)) return
     requestedExplanationIds.current.add(activeRecommendation.id)
-    const daysSinceSend = Math.min(7, Math.max(0, Math.floor((Date.now() - sentAt) / (24 * 60 * 60 * 1000))))
-    void requestAnalyticsExplanation({ campaignName: campaign.name, reportViews, daysSinceSend }).then((result) => {
-      setRecommendations(saveAnalyticsRecommendationExplanation(window.localStorage, activeRecommendation.id, result.description, result.explanationMode))
+    const recommendationId = activeRecommendation.id
+    const pendingDiagnostics = createPendingAnalyticsDiagnostics()
+    setRecommendations(saveAnalyticsRecommendationDiagnostics(window.localStorage, recommendationId, pendingDiagnostics))
+    void requestAnalyticsExplanation({ campaignName: campaign.name, sentAt: campaign.sentAt, reportViewTimestamps }).then((result) => {
+      setRecommendations(saveAnalyticsRecommendationExplanation(window.localStorage, recommendationId, result.description, result.explanationMode, result.aiDiagnostics))
     })
   }, [activeRecommendation, campaigns, events])
 
@@ -211,7 +233,7 @@ function Dashboard({ section, onNavigate, onLogout }: { section: Section; onNavi
       <header className="workspace-topbar"><div><span className="topbar-context">BrightPath Academy</span><span className="topbar-divider">/</span><strong>{section}</strong></div><button className="logout-button" onClick={onLogout}>Log out</button></header>
       <div className="workspace-page">
         {section === 'Dashboard' && <DashboardHome campaigns={campaigns} events={events} recommendation={activeRecommendation} analyticsSetup={analyticsSetup} onNavigate={onNavigate} onResumeAnalyticsSetup={() => { setAnalyticsSetupOpen(true); onNavigate('Analytics') }} onExploreRecommendation={() => activeRecommendation && exploreRecommendation(activeRecommendation.id)} onDismissRecommendation={() => activeRecommendation && dismissRecommendation(activeRecommendation.id)} />}
-        {section === 'Campaigns' && <CampaignsPage campaigns={campaigns} events={events} recommendation={activeRecommendation} onCreate={createCampaign} onSend={sendCampaign} onViewReport={viewReport} onExploreRecommendation={() => activeRecommendation && exploreRecommendation(activeRecommendation.id)} onDismissRecommendation={() => activeRecommendation && dismissRecommendation(activeRecommendation.id)} />}
+        {section === 'Campaigns' && <CampaignsPage campaigns={campaigns} events={events} recommendation={activeRecommendation} debugRecommendation={activeRecommendation ?? recommendations[0] ?? null} onCreate={createCampaign} onSend={sendCampaign} onViewReport={viewReport} onExploreRecommendation={() => activeRecommendation && exploreRecommendation(activeRecommendation.id)} onDismissRecommendation={() => activeRecommendation && dismissRecommendation(activeRecommendation.id)} />}
         {section === 'Student Leads' && <StudentLeadsPage />}
         {section === 'Conversations' && <ConversationsPage />}
         {section === 'Analytics' && <AnalyticsSetupPage setup={analyticsSetup} isOpen={analyticsSetupOpen} onStart={beginAnalyticsSetup} onResume={() => setAnalyticsSetupOpen(true)} onUpdate={updateSetup} onActivate={finishAnalyticsSetup} />}
@@ -240,7 +262,7 @@ function SummaryCard({ label, value, detail, icon }: { label: string; value: str
   return <article className="summary-card"><span className="summary-icon">{icon}</span><div><span className="summary-label">{label}</span><strong>{value}</strong><small>{detail}</small></div></article>
 }
 
-function CampaignsPage({ campaigns, events, recommendation, onCreate, onSend, onViewReport, onExploreRecommendation, onDismissRecommendation }: { campaigns: Campaign[]; events: ReturnType<typeof readEvents>; recommendation: AnalyticsRecommendation | null; onCreate: (name: string) => void; onSend: (id: string) => void; onViewReport: (campaign: Campaign) => void; onExploreRecommendation: () => void; onDismissRecommendation: () => void }) {
+function CampaignsPage({ campaigns, events, recommendation, debugRecommendation, onCreate, onSend, onViewReport, onExploreRecommendation, onDismissRecommendation }: { campaigns: Campaign[]; events: ReturnType<typeof readEvents>; recommendation: AnalyticsRecommendation | null; debugRecommendation: AnalyticsRecommendation | null; onCreate: (name: string) => void; onSend: (id: string) => void; onViewReport: (campaign: Campaign) => void; onExploreRecommendation: () => void; onDismissRecommendation: () => void }) {
   const [isCreating, setIsCreating] = useState(false)
   const [name, setName] = useState('')
   const [error, setError] = useState('')
@@ -308,7 +330,7 @@ function CampaignsPage({ campaigns, events, recommendation, onCreate, onSend, on
       </section>
       <aside className="activity-panel">{recommendation && <section className="campaign-recommendation-card" aria-label="Analytics recommendation"><div className="campaign-recommendation-title"><span className="campaign-recommendation-icon" aria-hidden="true">▥</span><strong>A better way to track your campaigns</strong></div><ExplanationModeLabel recommendation={recommendation} /><p>{recommendation.description}</p><div className="campaign-recommendation-actions"><button className="secondary-action" onClick={onExploreRecommendation}>Explore</button><button className="text-action" onClick={onDismissRecommendation}>Not now</button></div></section>}<div className="section-heading"><div><h2>Recent activity</h2><p>Campaign actions, in order</p></div><span className="activity-count">{events.length}</span></div>{events.length === 0 ? <div className="activity-empty"><span>◷</span><p>Your campaign activity will appear here.</p></div> : <ol className="activity-list">{events.slice(0, 8).map((item) => <li key={item.id}><span className="activity-dot" /><div><p>{item.description}</p><time dateTime={item.timestamp}>{formatDateTime(item.timestamp)}</time></div></li>)}</ol>}</aside>
     </div>
-    <details className="reviewer-panel"><summary>Reviewer event log <span>Technical event names, IDs, and timestamps</span></summary>{events.length === 0 ? <p className="reviewer-empty">No events have been recorded yet.</p> : <div className="reviewer-table-wrap"><table className="reviewer-table"><thead><tr><th>Event name</th><th>Event ID</th><th>Timestamp</th></tr></thead><tbody>{events.map((item) => <tr key={item.id}><td><code>{item.eventName}</code></td><td><code>{item.id}</code></td><td><time dateTime={item.timestamp}>{formatDateTime(item.timestamp)}</time></td></tr>)}</tbody></table></div>}</details>
+    <details className="reviewer-panel"><summary>Reviewer event log <span>Technical event names, IDs, timestamps, and Groq diagnostics</span></summary><ReviewerAiDiagnostics recommendation={debugRecommendation} />{events.length === 0 ? <p className="reviewer-empty">No events have been recorded yet.</p> : <div className="reviewer-table-wrap"><table className="reviewer-table"><thead><tr><th>Event name</th><th>Event ID</th><th>Timestamp</th></tr></thead><tbody>{events.map((item) => <tr key={item.id}><td><code>{item.eventName}</code></td><td><code>{item.id}</code></td><td><time dateTime={item.timestamp}>{formatDateTime(item.timestamp)}</time></td></tr>)}</tbody></table></div>}</details>
   </>
 }
 

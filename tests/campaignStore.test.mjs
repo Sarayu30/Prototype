@@ -12,6 +12,7 @@ import {
   readDemoSession,
   readEvents,
   readRecommendations,
+  saveAnalyticsRecommendationExplanation,
   saveCampaigns,
   saveDemoSession,
   trackCampaignAction,
@@ -235,6 +236,25 @@ test('automatically persists one recommendation at three report views, but not o
   evaluateAnalyticsRecommendations(storage, readCampaigns(storage), readEvents(storage))
   assert.equal(readRecommendations(storage).length, 1)
   assert.equal(JSON.parse(storage.getItem(RECOMMENDATION_STORAGE_KEY)).length, 1)
+})
+
+test('rule reevaluation preserves the successful Groq explanation across reloads and later campaign actions', () => {
+  const storage = new MemoryStorage()
+  const sent = { ...campaign, sentAt: new Date().toISOString() }
+  saveCampaigns(storage, [sent])
+  let events = []
+  for (let index = 0; index < 3; index += 1) {
+    events = trackCampaignAction(storage, 'campaign.performance_report_viewed', sent, `view-${index}`).events
+  }
+  const recommendation = evaluateAnalyticsRecommendations(storage, [sent], events)[0]
+  const diagnostics = { status: 'succeeded', errorCode: null, message: 'Groq returned a personalized explanation.', keyConfigured: true, model: 'openai/gpt-oss-120b', httpStatus: 200, attemptedAt: new Date().toISOString() }
+  saveAnalyticsRecommendationExplanation(storage, recommendation.id, 'Analytics can help you compare this campaign with future updates.', 'groq', diagnostics)
+
+  const reloaded = evaluateAnalyticsRecommendations(storage, [sent], events)[0]
+  assert.equal(reloaded.description, 'Analytics can help you compare this campaign with future updates.')
+  assert.equal(reloaded.explanationMode, 'groq')
+  assert.equal(reloaded.aiDiagnostics.keyConfigured, true)
+  assert.equal(JSON.stringify(reloaded).includes('private-test-key'), false)
 })
 
 test('report views after the seven-day window do not create an Analytics recommendation', () => {

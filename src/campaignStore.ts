@@ -4,6 +4,16 @@ export const RECOMMENDATION_STORAGE_KEY = 'cheerio:recommendations'
 export const DEMO_SESSION_STORAGE_KEY = 'cheerio:demo-session'
 export const ANALYTICS_RECOMMENDATION_DESCRIPTION = "You've checked your results several times. Discover Analytics to spot trends more easily."
 export type AnalyticsExplanationMode = 'pending' | 'groq' | 'fallback'
+export type AnalyticsAiDiagnostics = {
+  status: 'requesting' | 'succeeded' | 'failed' | 'rejected'
+  errorCode: string | null
+  message: string
+  keyConfigured: boolean | null
+  model: string | null
+  httpStatus?: number
+  attemptedAt: string
+  completedAt?: string
+}
 
 export type CampaignStatus = 'draft' | 'sent'
 
@@ -39,6 +49,7 @@ export type AnalyticsRecommendation = {
   campaignName: string
   description: string
   explanationMode?: AnalyticsExplanationMode
+  aiDiagnostics?: AnalyticsAiDiagnostics
   createdAt: string
   dismissedAt?: string
 }
@@ -143,7 +154,7 @@ export function evaluateAnalyticsRecommendations(
   const savedRecommendations = readRecommendations(storage)
   const recommendations = savedRecommendations.map((recommendation) => ({
     ...recommendation,
-    description: ANALYTICS_RECOMMENDATION_DESCRIPTION,
+    description: recommendation.explanationMode === 'groq' ? recommendation.description : ANALYTICS_RECOMMENDATION_DESCRIPTION,
     explanationMode: recommendation.dismissedAt ? (recommendation.explanationMode ?? 'fallback') : (recommendation.explanationMode ?? 'pending'),
   }))
   const copyChanged = recommendations.some((recommendation, index) => recommendation.description !== savedRecommendations[index].description || recommendation.explanationMode !== savedRecommendations[index].explanationMode)
@@ -171,10 +182,20 @@ export function evaluateAnalyticsRecommendations(
   return updated
 }
 
-export function saveAnalyticsRecommendationExplanation(storage: StorageLike, recommendationId: string, description: string, explanationMode: Exclude<AnalyticsExplanationMode, 'pending'>): AnalyticsRecommendation[] {
+export function saveAnalyticsRecommendationDiagnostics(storage: StorageLike, recommendationId: string, aiDiagnostics: AnalyticsAiDiagnostics): AnalyticsRecommendation[] {
   const recommendations = readRecommendations(storage)
   const updated = recommendations.map((recommendation) => recommendation.id === recommendationId
-    ? { ...recommendation, description, explanationMode }
+    ? { ...recommendation, aiDiagnostics }
+    : recommendation,
+  )
+  storage.setItem(RECOMMENDATION_STORAGE_KEY, JSON.stringify(updated))
+  return updated
+}
+
+export function saveAnalyticsRecommendationExplanation(storage: StorageLike, recommendationId: string, description: string, explanationMode: Exclude<AnalyticsExplanationMode, 'pending'>, aiDiagnostics: AnalyticsAiDiagnostics): AnalyticsRecommendation[] {
+  const recommendations = readRecommendations(storage)
+  const updated = recommendations.map((recommendation) => recommendation.id === recommendationId
+    ? { ...recommendation, description, explanationMode, aiDiagnostics }
     : recommendation,
   )
   storage.setItem(RECOMMENDATION_STORAGE_KEY, JSON.stringify(updated))
