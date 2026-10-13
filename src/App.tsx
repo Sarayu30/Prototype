@@ -59,16 +59,16 @@ function Login({ onLogin }: { onLogin: () => void }) {
 
   return (
     <main className="login-shell">
-      <header className="topbar"><Brand /><span className="topbar-note">Campaigns, audience, and performance—all in one place</span></header>
+      <header className="topbar"><Brand /><span className="topbar-note">Everything connected. Everything simpler.</span></header>
       <section className="login-layout" aria-labelledby="welcome-heading">
         <div className="welcome-panel">
-          <div className="eyebrow"><span className="eyebrow-dot" /> CAMPAIGNS · WHATSAPP · EMAIL · SMS</div>
-          <h1 id="welcome-heading">Make every<br /><span>campaign count.</span></h1>
-          <p className="welcome-copy">Create campaigns, connect with your audience, track results, and discover smarter ways to grow all in one place.</p>
+          <div className="eyebrow"><span className="eyebrow-dot" /> ALL-IN-ONE PLATFORM</div>
+          <h1 id="welcome-heading">Everything connected.<br /><span>Everything simpler.</span></h1>
+          <p className="welcome-copy">Manage your audience, start conversations, run campaigns, track performance, and automate repetitive work — all in one place.</p>
           <div className="quote-card">
             <div className="quote-symbol" aria-hidden="true">“</div>
-            <p>Create better campaigns. Understand your audience. Save time.</p>
-            <span>DISCOVER AUTOMATIONS TO SAVE TIME</span>
+            <p>Connect better. Work smarter. Grow faster.</p>
+            <span>YOUR CHEERIO WORKSPACE</span>
           </div>
           <div className="welcome-decoration decoration-one" /><div className="welcome-decoration decoration-two" />
         </div>
@@ -78,7 +78,7 @@ function Login({ onLogin }: { onLogin: () => void }) {
             <div className="mobile-brand"><Brand /></div>
             <div className="eyebrow form-eyebrow">WELCOME BACK</div>
             <h2>Good to see you<br />again.</h2>
-            <p>Sign in to manage your campaigns and keep things moving.</p>
+            <p>Sign in to pick up where you left off and make the most of Cheerio.</p>
           </div>
           <form className="login-form" onSubmit={handleSubmit} noValidate>
             <label htmlFor="email">Email address</label>
